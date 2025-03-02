@@ -38,7 +38,7 @@ x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_
 # He puesto un max_depth de 15 para que no haya sobrecorrección y además computacionalmente cueste menos
 # Uso el mismo random_state que antes, al poner un random_state en teoría disminuyo la aleatoreidad entre repeticiones del mismo test
 
-modelo = DecisionTreeClassifier(criterion='gini', splitter='best', max_depth=15, random_state=42)
+modelo = DecisionTreeClassifier(criterion='gini', splitter='best', max_depth=8, random_state=42)
 
 # construir el árbol
 modelo.fit(x_train, y_train)
