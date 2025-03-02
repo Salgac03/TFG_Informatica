@@ -10,8 +10,8 @@ Para las Pruebas voy a usar las siguientes BD:
 Algunas DBs de UCI serán cargadas desde su módulo python
 
 ## Conclusiones
-Las Pruebas 1, 2 y 3 son exactamente el mismo programa con una sola diferencia, el parámetro `max\_depth` varía, con esto he intentado
-ver como afecta la profundidad del árbol a su complejidad y su exactitud. He observado que al menos a partir de un `max\_depth` 4, no se
+Las Pruebas 1, 2 y 3 son exactamente el mismo programa con una sola diferencia, el parámetro `max_depth` varía, con esto he intentado
+ver como afecta la profundidad del árbol a su complejidad y su exactitud. He observado que al menos a partir de un `max_depth` 4, no se
 consigue ninguna mejoría en la exactitud, por lo que todo lo que se obtiene a partir de ahí, es un sobreajuste costoso computacionalmente.
 
 ## Citas
