@@ -19,3 +19,4 @@ cycler
 contourpy
 scikit-learn
 matplotlib
+scapy
