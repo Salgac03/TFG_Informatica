@@ -34,3 +34,34 @@ Tareas:
 Hecho:
 
 - Ejemplo firewall sencillo BPF+XDP
+
+## Acta 05-03-2025
+Definición de las subtareas del TFG:
+
+Tareas:
+
+- Utilizar los árboles de decisión para generar código BPF (DPDK, etc)
+
+- Evaluar en un testbed más real
+
+- Escribir documento
+
+- (admin) Registrar el trabajo en tfg.eps.uam.es. Desde el registro hasta la defensa, al menos dos meses.
+
+En proceso:
+
+- Usar los datos para generar un árbol de decisión (o random forest):
+
+    - decision tree: https://scikit-learn.org/stable/modules/generated/sklearn.tree.DecisionTreeClassifier.html 
+
+    - random forest: https://scikit-learn.org/stable/modules/ensemble.html#random-forests
+
+- Concretar un testbed inicial y evaluar: 
+
+	- mininet
+
+Hecho:
+
+- Repositorio de código, artifacts, etc.
+- Ejemplo firewall sencillo BPF+XDP
+- Ver bases de datos de ransomware u otros problemas
