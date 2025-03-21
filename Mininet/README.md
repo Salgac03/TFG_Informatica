@@ -7,6 +7,7 @@ La manera más fácil de instalar mininet es a través del gestor de paquetes:
 
 ```
 sudo apt install mininet
+sudo apt install openvswitch-switch
 ```
 
 ## Configuracion
