@@ -4,8 +4,8 @@
 #include <linux/udp.h>
 #include <linux/tcp.h>
 #include <bpf/bpf_helpers.h>
+#include <netinet/in.h>
 
-// Mapa BPF para contar paquetes descartados
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);   // Tipo de mapa: array
     __uint(max_entries, 2);             // Máximo de 2 entradas (una para UDP y otra para TCP)

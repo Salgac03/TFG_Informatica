@@ -1,9 +1,10 @@
-from mininet.net import Mininet             # Para crear y gestionar la red
-from mininet.topo import Topo               # Para definir la topología
+from mininet.net import Mininet             # Para crear y gestionar la red from mininet.topo import Topo               # Para definir la topología
 from mininet.node import Node, CPULimitedHost, OVSKernelSwitch  # Para crear hosts y routers personalizados
 from mininet.link import TCLink             # Para enlaces con control de tráfico
 from mininet.cli import CLI                 # Para interactuar con la red desde la línea de comandos
 from mininet.log import setLogLevel 
+from mininet.node import OVSController
+from mininet.topo import Topo
 
 class MyRouter(Node):
     '''
@@ -73,7 +74,9 @@ def run():
     Función para ejecutar la red
     '''
 
-    net = Mininet(MyTopo=(), link=TCLink)
+    net = Mininet(topo=MyTopo(), link=TCLink, controller=OVSController)
+    # Configuración por defecto de NAT
+    net.addNAT().configDefault()
     net.start()
 
     # Configuramos las rutas de los hosts para que usen el Router
@@ -85,6 +88,8 @@ def run():
     # Línea de comandos para interactuar con la topología creada
     CLI(net)
 
+    # Paramos la red
+    net.stop()
 
 
 if __name__  == '__main__':
