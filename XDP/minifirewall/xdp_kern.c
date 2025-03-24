@@ -6,32 +6,36 @@
 #include <bpf/bpf_helpers.h>
 #include <netinet/in.h>
 
+// Mapa para contar los paquetes descartados
 struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);   // Tipo de mapa: array
-    __uint(max_entries, 2);             // Máximo de 2 entradas (una para UDP y otra para TCP)
-    __type(key, __u32);                 // Clave: índice en el array (0 = UDP, 1 = TCP)
-    __type(value, __u64);               // Valor: contador de paquetes descartados
+    __uint(type, BPF_MAP_TYPE_ARRAY);  // Tipo de mapa
+    __uint(max_entries, 2);            // Máximo de 2 entradas
+    __type(key, __u32);                // Clave
+    __type(value, __u64);              // Valor
 } drop_count SEC(".maps");
 
+// Función XDP que filtra los paquetes
 SEC("xdp")
 int xdp_filter(struct xdp_md *ctx) {
     void *data = (void *)(long)ctx->data;
     void *data_end = (void *)(long)ctx->data_end;
 
+    // Verificar si el paquete está dentro del límite de datos
+    if (data + sizeof(struct ethhdr) > data_end)
+        return XDP_DROP;  // Si no hay datos suficientes, descartar
+
     // Verificación de cabecera Ethernet
     struct ethhdr *eth = data;
-    if ((void *)(eth + 1) > data_end)
-        return XDP_DROP;
-
-    // Verificar si el paquete es IPv4
     if (eth->h_proto != __constant_htons(ETH_P_IP))
-        return XDP_PASS;
+        return XDP_PASS;  // Si no es IP, permitir el paquete
 
+    // Verificar la cabecera IP
     struct iphdr *ip = (struct iphdr *)(eth + 1);
     if ((void *)(ip + 1) > data_end)
         return XDP_DROP;
 
-    __u32 key;
+    // Contador para UDP
+    __u32 key = 0;  // 0 para UDP
     __u64 *count;
 
     // Filtrado de paquetes UDP
@@ -40,13 +44,13 @@ int xdp_filter(struct xdp_md *ctx) {
         if ((void *)(udp + 1) > data_end)
             return XDP_DROP;
 
-        if (udp->dest == __constant_htons(53))  // Solo permitir destino 53 (DNS)
+        if (udp->dest == __constant_htons(53))  // Solo permitir DNS
             return XDP_PASS;
         else {
-            key = 0;  // Índice 0 para UDP
+            // Incrementar contador de paquetes descartados
             count = bpf_map_lookup_elem(&drop_count, &key);
             if (count)
-                __sync_fetch_and_add(count, 1);  // Incrementar contador de descartados
+                __sync_fetch_and_add(count, 1);
             return XDP_DROP;
         }
     }
@@ -57,18 +61,20 @@ int xdp_filter(struct xdp_md *ctx) {
         if ((void *)(tcp + 1) > data_end)
             return XDP_DROP;
 
-        if (tcp->source == __constant_htons(80)) {  // Bloquear paquetes desde el puerto 80 (HTTP)
-            key = 1;  // Índice 1 para TCP
+        if (tcp->source == __constant_htons(80)) {  // Bloquear paquetes HTTP
+            key = 1;  // 1 para TCP
             count = bpf_map_lookup_elem(&drop_count, &key);
             if (count)
-                __sync_fetch_and_add(count, 1);  // Incrementar contador de descartados
+                __sync_fetch_and_add(count, 1);  // Incrementar contador
             return XDP_DROP;
         }
         else
             return XDP_PASS;
     }
 
-    return XDP_PASS;
+    return XDP_PASS;  // Si no se cumplen las condiciones, pasar el paquete
 }
 
+// Licencia del módulo
 char _license[] SEC("license") = "GPL";
+
