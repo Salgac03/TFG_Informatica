@@ -7,72 +7,78 @@ En esta versión inical no se tiene en cuenta la capa de aplicación.
 '''
 
 from scapy.all import PcapReader, Ether, IP, TCP, UDP, Packet
-import pandas as pd
 import sys
 import csv
-from typing import Dict, Any
+import argparse
+from typing import Dict, Any, Tuple
 
 
-def paqt2dict(paqt : Packet) -> Dict[str, Any]:
-    '''Función que convierte un paquete en un diccionario'''
+csv_filename = './dataset.csv'
+def paqt2dict(paqt: Packet | Tuple) -> Dict[str, Any]:
+    '''Función que convierte un paquete (o tuple) en un diccionario'''
     dic = {}
 
-    dic["size"] = len(paqt)
-
-
-    if paqt.haslayer(Ether):
-       dic["eth_src"] = paqt[Ether].src 
-       dic["eth_dst"] = paqt[Ether].dst 
-       dic["eth_type"] = paqt[Ether].type
+    if isinstance(paqt, tuple):
+        # Assuming the first element of the tuple is the raw packet data
+        if paqt:
+            try:
+                packet = Ether(paqt[0])
+            except Exception as e:
+                print(f"Error al crear el paquete Scapy desde la tupla: {e}")
+                return {} # Return an empty dict or handle error as needed
+        else:
+            return {} # Empty tuple, return empty dict
+    elif isinstance(paqt, Packet):
+        packet = paqt
     else:
-       dic["eth_src"] = None 
-       dic["eth_dst"] = None 
-       dic["eth_type"] = None 
-        
+        print(f"Tipo de paquete no reconocido: {type(paqt)}")
+        return {} # Return empty dict for unknown types
 
-    if paqt.haslayer(IP):
-        dic["ip_src"] = paqt[IP].src
-        dic["ip_dst"] = paqt[IP].dst
-        dic["ip_proto"] = paqt[IP].proto
-        dic["ip_ttl"] = paqt[IP].ttl
-    else: 
-        dic["ip_src"] = None 
+    dic["size"] = len(packet)
+
+    if packet.haslayer(Ether):
+        dic["eth_src"] = packet[Ether].src
+        dic["eth_dst"] = packet[Ether].dst
+        dic["eth_type"] = packet[Ether].type
+    else:
+        dic["eth_src"] = None
+        dic["eth_dst"] = None
+        dic["eth_type"] = None
+
+    if packet.haslayer(IP):
+        dic["ip_src"] = packet[IP].src
+        dic["ip_dst"] = packet[IP].dst
+        dic["ip_proto"] = packet[IP].proto
+        dic["ip_ttl"] = packet[IP].ttl
+    else:
+        dic["ip_src"] = None
         dic["ip_dst"] = None
-        dic["ip_proto"] = None 
+        dic["ip_proto"] = None
         dic["ip_ttl"] = None
 
-
-    if paqt.haslayer(TCP):
+    if packet.haslayer(TCP):
         dic["protocolo_IP"] = "TCP"
-        dic["src_port"] = paqt[TCP].sport
-        dic["dst_port"] = paqt[TCP].dport
-        dic["tcp_flags"] = paqt[TCP].flags
-    elif paqt.haslayer(UDP):
+        dic["src_port"] = packet[TCP].sport
+        dic["dst_port"] = packet[TCP].dport
+        dic["tcp_flags"] = packet[TCP].flags
+    elif packet.haslayer(UDP):
         dic["protocolo_IP"] = "UDP"
-        dic["src_port"] = paqt[UDP].sport
-        dic["dst_port"] = paqt[UDP].dport
+        dic["src_port"] = packet[UDP].sport
+        dic["dst_port"] = packet[UDP].dport
         dic["tcp_flags"] = None
 
     return dic
 
 
-def main():
-    if len(sys.argv) != 3:
-        print("Introduce como parámetro el nombre del archivo pcap ransomware y el archivo con trafico normal que quieres convertir a csv en el orden dicho.")
-        return -1
 
-
-    # Nombre del archivo csv final
-    csv_filename = sys.argv[1].replace(".pcap", ".csv")
-
-    # Abrimos el archivo pcap y lo vamos convirtiendo a csv
+def paqt_ransomware(filename : str):
     try:
         # Array de diccionarios que se transforman en la parte del csv 
         # correspondiente al ransomware
         datos = []
         i = 0
 
-        with PcapReader(sys.argv[1]) as paquetes:
+        with PcapReader(filename) as paquetes:
 
             for paqt in paquetes:
                 dic = paqt2dict(paqt)
@@ -107,6 +113,8 @@ def main():
         return -1
 
 
+
+def paqt_legitimo(filename : str):
     # Abrimos el archivo pcap y lo vamos convirtiendo a csv
     try:
         # Array de diccionarios que se transforman en la parte del csv 
@@ -114,7 +122,7 @@ def main():
         datos = []
         i = 0
 
-        with PcapReader(sys.argv[2]) as paquetes:
+        with PcapReader(filename) as paquetes:
 
             for paqt in paquetes:
                 dic = paqt2dict(paqt)
@@ -144,6 +152,27 @@ def main():
     except Exception as e:
         print(f"Error al abrir y leer el archivo pcap de balanceo de clases y pasarlo a csv. Ha saltado la excepción: {e}")
         return -1
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Procesar archivos con -m y -l. Ambas opciones son obligatorias.")
+    
+    # Definir los argumentos -m y -l que aceptan múltiples valores
+    parser.add_argument('-m', '--mfiles', nargs='+', help='Lista de archivos para la opción -m', required=True)
+    parser.add_argument('-l', '--lfiles', nargs='+', help='Lista de archivos para la opción -l', required=True)
+
+    # Parsear los argumentos
+    args = parser.parse_args()
+
+    # Acceder a los valores de los argumentos
+    mfiles = args.mfiles  # Archivos pasados con la opción -m
+    lfiles = args.lfiles
+
+    for file in mfiles:
+        paqt_ransomware(file)
+        
+    for file in lfiles:
+        paqt_legitimo(file)
 
 
 
