@@ -2,7 +2,7 @@
 CLANG = clang
 CC = gcc
 CFLAGS = -O2
-BPF_FLAGS = -target bpf-net-none -g -Wall  # Opciones para compilar correctamente BPF
+BPF_FLAGS = -target bpf  # Opciones para compilar correctamente BPF
 KERNEL_INCLUDES = -I/usr/include -I.      # Rutas de inclusión para el kernel
 
 # Archivos fuente y de salida
@@ -16,7 +16,7 @@ all: $(KERN_OBJ) $(USR_BIN)
 
 # Compilar el programa del kernel
 $(KERN_OBJ): $(KERN_SRC)
-	$(CLANG) $(BPF_FLAGS) $(KERNEL_INCLUDES) -mcpu=v1 -c $(KERN_SRC) -o $(KERN_OBJ)  # Usar -c para evitar el enlace
+	$(CLANG) $(BPF_FLAGS) $(KERNEL_INCLUDES) -g -O2 -mcpu=v1 -c $(KERN_SRC) -o $(KERN_OBJ)  # Agregar -g para la información de depuración
 
 # Compilar el programa de espacio de usuario
 $(USR_BIN): $(USR_SRC)
