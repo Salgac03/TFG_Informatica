@@ -1,0 +1,35 @@
+La exactitud del modelo es:  1.00
+|--- ip_ttl <= 123.00
+|   |--- ip_ttl <= 22.00
+|   |   |--- ip_proto <= 60.00
+|   |   |   |--- size <= 61.00
+|   |   |   |   |--- class: Yes
+|   |   |   |--- size >  61.00
+|   |   |   |   |--- class: Yes
+|   |   |--- ip_proto >  60.00
+|   |   |   |--- class: No
+|   |--- ip_ttl >  22.00
+|   |   |--- class: No
+|--- ip_ttl >  123.00
+|   |--- dst_port <= inf
+|   |   |--- ip_ttl <= 191.50
+|   |   |   |--- ip_proto <= inf
+|   |   |   |   |--- class: Yes
+|   |   |   |--- ip_proto >  inf
+|   |   |   |   |--- class: Yes
+|   |   |--- ip_ttl >  191.50
+|   |   |   |--- src_port <= 2710.00
+|   |   |   |   |--- class: Yes
+|   |   |   |--- src_port >  2710.00
+|   |   |   |   |--- class: No
+|   |--- dst_port >  inf
+|   |   |--- size <= 176.00
+|   |   |   |--- size <= 51.00
+|   |   |   |   |--- class: Yes
+|   |   |   |--- size >  51.00
+|   |   |   |   |--- class: Yes
+|   |   |--- size >  176.00
+|   |   |   |--- size <= 427.50
+|   |   |   |   |--- class: No
+|   |   |   |--- size >  427.50
+|   |   |   |   |--- class: Yes

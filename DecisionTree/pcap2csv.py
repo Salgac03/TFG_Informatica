@@ -14,6 +14,22 @@ from typing import Dict, Any, Tuple
 
 
 csv_filename = './dataset.csv'
+fieldnames = [
+    "size",
+    "eth_src",
+    "eth_dst",
+    "eth_type",
+    "ip_src",
+    "ip_dst",
+    "ip_proto",
+    "ip_ttl",
+    "protocolo_IP",
+    "src_port",
+    "dst_port",
+    "tcp_flags",
+    "Ransomware"
+]
+
 def paqt2dict(paqt: Packet | Tuple) -> Dict[str, Any]:
     '''Función que convierte un paquete (o tuple) en un diccionario'''
     dic = {}
@@ -66,6 +82,11 @@ def paqt2dict(paqt: Packet | Tuple) -> Dict[str, Any]:
         dic["src_port"] = packet[UDP].sport
         dic["dst_port"] = packet[UDP].dport
         dic["tcp_flags"] = None
+    else:
+        dic["protocolo_IP"] = None
+        dic["src_port"] = None
+        dic["dst_port"] = None
+        dic["tcp_flags"] = None
 
     return dic
 
@@ -73,40 +94,36 @@ def paqt2dict(paqt: Packet | Tuple) -> Dict[str, Any]:
 
 def paqt_ransomware(filename : str):
     try:
-        # Array de diccionarios que se transforman en la parte del csv 
+        # Array de diccionarios que se transforman en la parte del csv
         # correspondiente al ransomware
         datos = []
         i = 0
+        first_chunk = True
 
         with PcapReader(filename) as paquetes:
-
             for paqt in paquetes:
                 dic = paqt2dict(paqt)
-
                 dic["Ransomware"] = "Yes"
-
                 datos.append(dic)
                 i += 1
 
                 if i == 1024:
                     with open(csv_filename, mode='a', newline='') as csv_file:
-                        writer = csv.DictWriter(csv_file, fieldnames=datos[0].keys())
-                        if csv_file.tell() == 0:
+                        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+                        if first_chunk and csv_file.tell() == 0:
                             writer.writeheader()
-
+                            first_chunk = False
                         writer.writerows(datos)
-
-
                     datos = []
                     i = 0
 
-
+        # Escribir los datos restantes si hay menos de 1024 paquetes
         if datos:
             with open(csv_filename, mode='a', newline='') as csv_file:
-                writer = csv.DictWriter(csv_file, fieldnames=datos[0].keys())
-
+                writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+                if first_chunk and csv_file.tell() == 0:
+                    writer.writeheader()
                 writer.writerows(datos)
-
 
     except Exception as e:
         print(f"Error al abrir y leer el archivo pcap ransomware y pasarlo a csv. Ha saltado la excepción: {e}")
@@ -117,37 +134,36 @@ def paqt_ransomware(filename : str):
 def paqt_legitimo(filename : str):
     # Abrimos el archivo pcap y lo vamos convirtiendo a csv
     try:
-        # Array de diccionarios que se transforman en la parte del csv 
-        # correspondiente a los datos para hacer un balanceo de clases 
+        # Array de diccionarios que se transforman en la parte del csv
+        # correspondiente a los datos para hacer un balanceo de clases
         datos = []
         i = 0
+        first_chunk = True
 
         with PcapReader(filename) as paquetes:
-
             for paqt in paquetes:
                 dic = paqt2dict(paqt)
-
                 dic["Ransomware"] = "No"
-
                 datos.append(dic)
                 i += 1
 
                 if i == 1024:
                     with open(csv_filename, mode='a', newline='') as csv_file:
-                        writer = csv.DictWriter(csv_file, fieldnames=datos[0].keys())
+                        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+                        if first_chunk and csv_file.tell() == 0:
+                            writer.writeheader()
+                            first_chunk = False
                         writer.writerows(datos)
-
-
                     datos = []
                     i = 0
 
-
+        # Escribir los datos restantes si hay menos de 1024 paquetes
         if datos:
             with open(csv_filename, mode='a', newline='') as csv_file:
-                writer = csv.DictWriter(csv_file, fieldnames=datos[0].keys())
-
+                writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+                if first_chunk and csv_file.tell() == 0:
+                    writer.writeheader()
                 writer.writerows(datos)
-
 
     except Exception as e:
         print(f"Error al abrir y leer el archivo pcap de balanceo de clases y pasarlo a csv. Ha saltado la excepción: {e}")
@@ -156,7 +172,7 @@ def paqt_legitimo(filename : str):
 
 def main():
     parser = argparse.ArgumentParser(description="Procesar archivos con -m y -l. Ambas opciones son obligatorias.")
-    
+
     # Definir los argumentos -m y -l que aceptan múltiples valores
     parser.add_argument('-m', '--mfiles', nargs='+', help='Lista de archivos para la opción -m', required=True)
     parser.add_argument('-l', '--lfiles', nargs='+', help='Lista de archivos para la opción -l', required=True)
@@ -168,9 +184,14 @@ def main():
     mfiles = args.mfiles  # Archivos pasados con la opción -m
     lfiles = args.lfiles
 
+    # Escribir el encabezado del CSV solo una vez al principio
+    with open(csv_filename, mode='w', newline='') as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+
     for file in mfiles:
         paqt_ransomware(file)
-        
+
     for file in lfiles:
         paqt_legitimo(file)
 
