@@ -9,7 +9,7 @@ import pandas as pd
 csv_file_path = '../dataset.csv'  # Reemplaza con la ruta correcta a tu archivo CSV
 
 # Lista de columnas que NO quieres usar para el entrenamiento (además de la columna objetivo)
-columnas_a_excluir = ["eth_src", "eth_dst", "eth_type", "ip_src", "ip_dst"]  # Añade aquí los nombres de las columnas que no quieres usar
+columnas_a_excluir = ["eth_src", "eth_dst", "ip_src", "ip_dst"]  # Añade aquí los nombres de las columnas que no quieres usar
 
 # Lee el archivo CSV usando pandas
 try:

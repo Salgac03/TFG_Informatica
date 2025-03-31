@@ -41,6 +41,11 @@ en las pruebas previas a trabajar con el dataset de paquetes de red observé que
 el proyecto si lo veo conveniente probaré a darle más profundidad al árbol y comprobaré si se gana eficiencia con más profundidad o si solo hay
 un sobreajuste.
 
+### Versión Mejorada
+Me di cuenta de que sin querer metí en la lista de columnas que no tenían que ser procesadas para entrenar el árbol de decisión la variable `eth_type`
+y decidí volver a entrenar el árbol pero con este parámetro y fue sorprendente ver que la precisión se mantenía pero esta vez con un nivel menos de 
+profundidad, es decir profundidad máxima igual a 3 a pesar de que tenía permitido llegar a 4.
+
 ## Citas
 Moro, S., Rita, P., & Cortez, P. (2014). Bank Marketing [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C5K306.
 
