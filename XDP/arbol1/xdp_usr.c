@@ -64,18 +64,14 @@ int main(int argc, char **argv) {
     printf("Monitorizando el contador de paquetes descartados (Ctrl+C para salir)...\n");
 
     while (1) {
-        __u32 key_udp = 0, key_tcp = 1;
-        __u64 drop_udp = 0, drop_tcp = 0;
+        __u32 key = 0; // Clave única del mapa
+        __u64 drop_count = 0;
 
-        if (bpf_map_lookup_elem(map_fd, &key_udp, &drop_udp) < 0) {
-            perror("Error al leer contador UDP");
+        if (bpf_map_lookup_elem(map_fd, &key, &drop_count) < 0) {
+            perror("Error al leer contador de paquetes descartados");
+        } else {
+            printf("Total de paquetes descartados: \n%llu\n", drop_count);
         }
-        if (bpf_map_lookup_elem(map_fd, &key_tcp, &drop_tcp) < 0) {
-            perror("Error al leer contador TCP");
-        }
-
-        printf("Paquetes UDP descartados: %llu\n", drop_udp);
-        printf("Paquetes TCP descartados: %llu\n", drop_tcp);
 
         sleep(1); // Esperar 1 segundo antes de volver a leer
     }

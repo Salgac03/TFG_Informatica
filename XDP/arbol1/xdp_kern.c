@@ -14,10 +14,10 @@
 // Definición del mapa usando la sintaxis recomendada
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 2);
+    __uint(max_entries, 1); // Solo un valor para el contador total de descartes
     __type(key, __u32);
     __type(value, __u64);
-} drop_count SEC("maps"); // Tamaño 2 para UDP (key 0) y TCP (key 1)
+} drop_count SEC(".maps"); // Mapa para contar paquetes descartados
 
 SEC("xdp_prog/ransomware_tree")
 int ransomware_tree(struct xdp_md *ctx) {
@@ -25,7 +25,7 @@ int ransomware_tree(struct xdp_md *ctx) {
     void *data = (void *)(long)ctx->data;
     struct ethhdr *eth = data;
     int action = XDP_PASS;
-    __u32 key = -1; // Inicializar con un valor inválido
+    __u32 key = 0; // Clave fija para el contador global
 
     // Verificar límites del encabezado Ethernet
     if ((void *)eth + sizeof(*eth) > data_end)
@@ -96,16 +96,9 @@ int ransomware_tree(struct xdp_md *ctx) {
 
         // Actualizar el contador de caídas en el mapa
         if (action == XDP_DROP) {
-            if (ip_proto == IPPROTO_UDP) {
-                key = 0;
-            } else if (ip_proto == IPPROTO_TCP) {
-                key = 1;
-            }
-            if (key != -1) {
-                __u64 *drop_count_ptr = bpf_map_lookup_elem(&drop_count, &key);
-                if (drop_count_ptr) {
-                    (*drop_count_ptr)++;
-                }
+            __u64 *drop_count_ptr = bpf_map_lookup_elem(&drop_count, &key);
+            if (drop_count_ptr) {
+                __sync_fetch_and_add(drop_count_ptr, 1); // Incrementar contador
             }
         }
     } else if (bpf_htons(eth_type) == ETH_P_IPV6) {
