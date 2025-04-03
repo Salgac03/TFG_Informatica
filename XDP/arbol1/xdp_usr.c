@@ -70,7 +70,7 @@ int main(int argc, char **argv) {
         if (bpf_map_lookup_elem(map_fd, &key, &drop_count) < 0) {
             perror("Error al leer contador de paquetes descartados");
         } else {
-            printf("Total de paquetes descartados: \n%llu\n", drop_count);
+            printf("\nTotal de paquetes descartados: %llu\n", drop_count);
         }
 
         sleep(1); // Esperar 1 segundo antes de volver a leer
