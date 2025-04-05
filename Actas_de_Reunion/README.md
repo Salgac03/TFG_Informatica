@@ -65,3 +65,35 @@ Hecho:
 - Repositorio de código, artifacts, etc.
 - Ejemplo firewall sencillo BPF+XDP
 - Ver bases de datos de ransomware u otros problemas
+
+## Acta 19-03-2025
+Se define que para la siguiente Reunión se habrá hecho el primer árbol de decisión Ransomware para BPF/XDP
+
+## Acta 03-04-2025
+
+Definición de las subtareas del TFG:
+
+Tareas:
+
+- Evaluar en un testbed más real
+
+- Escribir documento
+
+En proceso:
+- Hacer traducción automática de árbol de decisión a código C
+- Concretar un testbed inicial y evaluar: 
+
+	- mininet
+
+
+Hecho:
+
+- Repositorio de código, artifacts, etc.
+- Ejemplo firewall sencillo BPF+XDP
+- Ver bases de datos de ransomware u otros problemas
+- Usar los datos para generar un árbol de decisión (o random forest)
+- (admin) Registrar el trabajo en tfg.eps.uam.es. Desde el registro hasta la defensa, al menos dos meses.
+- Utilizar los árboles de decisión para generar código BPF (DPDK, etc)
+
+
+Los plazos de tiempo se están cumpliendo
