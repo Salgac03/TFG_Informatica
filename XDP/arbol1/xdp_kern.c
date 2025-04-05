@@ -14,10 +14,10 @@
 // Definición del mapa usando la sintaxis recomendada
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 1); // Solo un valor para el contador total de descartes
+    __uint(max_entries, 2); // Dos valores: uno para XDP_DROP y otro para XDP_PASS
     __type(key, __u32);
     __type(value, __u64);
-} drop_count SEC(".maps"); // Mapa para contar paquetes descartados
+} packet_count SEC(".maps");
 
 SEC("xdp_prog/ransomware_tree")
 int ransomware_tree(struct xdp_md *ctx) {
@@ -94,17 +94,14 @@ int ransomware_tree(struct xdp_md *ctx) {
             }
         }
 
-        // Actualizar el contador de caídas en el mapa
-        if (action == XDP_DROP) {
-            __u64 *drop_count_ptr = bpf_map_lookup_elem(&drop_count, &key);
-            if (drop_count_ptr) {
-                __sync_fetch_and_add(drop_count_ptr, 1); // Incrementar contador
-            }
-        }
     } else if (bpf_htons(eth_type) == ETH_P_IPV6) {
         action = XDP_PASS;
     }
-
+	__u32 key_act = (action == XDP_DROP) ? 0 : 1; // 0 para DROP, 1 para PASS
+    __u64 *count_ptr = bpf_map_lookup_elem(&packet_count, &key_act);
+    if (count_ptr) {
+        __sync_fetch_and_add(count_ptr, 1); // Incrementar el contador correspondiente
+    }
     return action;
 }
 

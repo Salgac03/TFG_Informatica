@@ -3,12 +3,11 @@
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
 #include <errno.h>
-#include <fcntl.h>
-#include <unistd.h>
 #include <net/if.h>
 #include <string.h>
+#include <unistd.h>
 
-#define MAP_PATH "/sys/fs/bpf/drop_count"
+#define MAP_PATH "/sys/fs/bpf/packet_count"
 
 int main(int argc, char **argv) {
     struct bpf_object *obj;
@@ -37,7 +36,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    map_fd = bpf_object__find_map_fd_by_name(obj, "drop_count");
+    map_fd = bpf_object__find_map_fd_by_name(obj, "packet_count");
     if (map_fd < 0) {
         perror("Error al obtener FD del mapa BPF");
         return 1;
@@ -61,17 +60,22 @@ int main(int argc, char **argv) {
     }
 
     printf("Programa XDP adjuntado a la interfaz %s\n", argv[1]);
-    printf("Monitorizando el contador de paquetes descartados (Ctrl+C para salir)...\n");
+    printf("Monitorizando contadores de paquetes (Ctrl+C para salir)...\n");
 
     while (1) {
-        __u32 key = 0; // Clave única del mapa
-        __u64 drop_count = 0;
+        __u32 drop_key = 0; // Clave para XDP_DROP
+        __u32 pass_key = 1; // Clave para XDP_PASS
+        __u64 drop_count = 0, pass_count = 0;
 
-        if (bpf_map_lookup_elem(map_fd, &key, &drop_count) < 0) {
+        if (bpf_map_lookup_elem(map_fd, &drop_key, &drop_count) < 0) {
             perror("Error al leer contador de paquetes descartados");
-        } else {
-            printf("\nTotal de paquetes descartados: %llu\n", drop_count);
         }
+        if (bpf_map_lookup_elem(map_fd, &pass_key, &pass_count) < 0) {
+            perror("Error al leer contador de paquetes pasados");
+        }
+
+        printf("\nTotal de paquetes descartados (XDP_DROP): %llu\n", drop_count);
+        printf("Total de paquetes pasados (XDP_PASS): %llu\n", pass_count);
 
         sleep(1); // Esperar 1 segundo antes de volver a leer
     }
