@@ -14,7 +14,7 @@ sudo apt install openvswitch-switch
 La red de mininet te permite configurar un NAT por defecto, trabajando me he encontrado con una posible incompatibilidad entre docker y mininet pues sin motivo alguno y aparentemente a causa de docker, se añadía una regla a iptables que hacía DROP de todos los paquetes que vayan a la red de mininet desde el host es por eso que he creado el script `Configuracion.sh` que permite desactivar docker y eliminar esa regla si existe o activar docker para una vez finalizado el uso de mininet.
 
 ## Red Árbol 1
-Para el primer árbol de decisión he seguido el siguiente diseño:
+Para el primer árbol de decisión he seguido el siguiente diseño de red:
 
 ![Si no carga ver la imagen llamada ./diagramas/DiagramaRedArbol1.png del repositorio](./diagramas/DiagramaRedArbol1.png)
 
