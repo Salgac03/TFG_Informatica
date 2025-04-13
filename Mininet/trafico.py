@@ -1,10 +1,10 @@
 '''
 Script python que lee archivos .pcap y los envía por la red a una ip_dst,
-seleccionando aleatoriamente paquetes de diferentes conjuntos cada 500 ms y
+seleccionando aleatoriamente paquetes de diferentes conjuntos cada 200 ms y
 modificando las direcciones MAC de origen y destino.
 '''
 
-from scapy.all import PcapReader, IP, Ether, sendp
+from scapy.all import PcapReader, IP, send, Ether
 import argparse
 import time
 import random
@@ -12,21 +12,28 @@ from typing import List, Iterator
 
 def send_packets(packets, ip_src, ip_dst, eth_src, eth_dst):
     """Envía una lista de paquetes modificando las direcciones IP y MAC."""
+    sent_count = 0
     for packet in packets:
         try:
             if packet.haslayer(IP):
                 # Modificar IPs
                 packet[IP].src = ip_src
                 packet[IP].dst = ip_dst
-                
+
+            # Modificar MACs
             if packet.haslayer(Ether):
-                # Modificar MACs
                 packet[Ether].src = eth_src
                 packet[Ether].dst = eth_dst
-                
-            sendp(packet, verbose=False)
+            elif not packet.haslayer(Ether):
+                # Crear una capa Ether si no existe
+                packet = Ether(src=eth_src, dst=eth_dst) / packet
+
+            # Enviar el paquete a nivel de capa 3
+            send(packet, verbose=False)
+            sent_count += 1
         except Exception as e:
             print(f"Error al enviar el paquete: {e}")
+    return sent_count
 
 def packet_generator(filenames: List[str]) -> Iterator:
     """Generador que lee paquetes de una lista de archivos pcap sin cargarlos todos en memoria."""
@@ -63,30 +70,30 @@ def main():
         while True:
             random_number = random.randint(0, 100)
             packets_to_send = []
+            sent_this_iteration = 0
 
             if random_number % 2 == 0:
                 for _ in range(4):
                     try:
                         packet = next(lfiles_generator)
                         packets_to_send.append(packet)
-                        count_lfiles += 1
                     except StopIteration:
                         print("Se alcanzaron todos los paquetes de los archivos -l.")
                         break
+                sent_this_iteration = send_packets(packets_to_send, ip_src, ip_dst, eth_src, eth_dst)
+                count_lfiles += sent_this_iteration
             else:
                 for _ in range(4):
                     try:
                         packet = next(mfiles_generator)
                         packets_to_send.append(packet)
-                        count_mfiles += 1
                     except StopIteration:
                         print("Se alcanzaron todos los paquetes de los archivos -m.")
                         break
+                sent_this_iteration = send_packets(packets_to_send, ip_src, ip_dst, eth_src, eth_dst)
+                count_mfiles += sent_this_iteration
 
-            if packets_to_send:
-                send_packets(packets_to_send, ip_src, ip_dst, eth_src, eth_dst)
-
-            time.sleep(0.5)
+            time.sleep(0.2)
 
     except KeyboardInterrupt:
         print("\nScript interrumpido manualmente.")

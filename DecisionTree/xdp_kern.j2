@@ -1,0 +1,59 @@
+#include <linux/bpf.h>
+#include <linux/if_ether.h>
+#include <linux/ip.h>
+#include <linux/tcp.h>
+#include <linux/udp.h>
+#include <bpf/bpf_helpers.h>
+#include <bpf/bpf_endian.h>
+
+#define ETH_P_IP   0x0800
+#define ETH_P_IPV6 0x86DD
+#define IPPROTO_TCP 6
+#define IPPROTO_UDP 17
+
+// Definición del mapa usando la sintaxis recomendada
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 2); // Dos valores: uno para XDP_DROP y otro para XDP_PASS
+    __type(key, __u32);
+    __type(value, __u64);
+} packet_count SEC(".maps");
+
+SEC("xdp_prog/ransomware_tree")
+int ransomware_tree(struct xdp_md *ctx) {
+    void *data_end = (void *)(long)ctx->data_end;
+    void *data = (void *)(long)ctx->data;
+    struct ethhdr *eth = data;
+    int action = XDP_PASS;
+    __u32 key = 0; // Clave fija para el contador global
+
+    // Verificar límites del encabezado Ethernet
+    if ((void *)eth + sizeof(*eth) > data_end)
+        return XDP_PASS;
+
+    __be16 eth_type = eth->h_proto;
+
+    // Manejar IPv4
+    if (bpf_htons(eth_type) == ETH_P_IP) {
+        struct iphdr *ip = data + sizeof(*eth);
+        if ((void *)ip + sizeof(*ip) > data_end)
+            return XDP_PASS;
+
+        __u8 ip_proto = ip->protocol;
+        __u8 ip_ttl = ip->ttl;
+        __u16 size = bpf_htons(ip->tot_len);
+
+		{{ decision_tree }}
+
+    } else if (bpf_htons(eth_type) == ETH_P_IPV6) {
+        action = XDP_PASS;
+    }
+	__u32 key_act = (action == XDP_DROP) ? 0 : 1; // 0 para DROP, 1 para PASS
+    __u64 *count_ptr = bpf_map_lookup_elem(&packet_count, &key_act);
+    if (count_ptr) {
+        __sync_fetch_and_add(count_ptr, 1); // Incrementar el contador correspondiente
+    }
+    return action;
+}
+
+char _license[] SEC("license") = "GPL";

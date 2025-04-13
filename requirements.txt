@@ -21,3 +21,4 @@ scikit-learn
 matplotlib
 scapy
 mininet
+jinja2

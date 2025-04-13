@@ -1,62 +1,122 @@
 from sklearn.model_selection import train_test_split
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.tree import plot_tree
+from sklearn.tree import DecisionTreeClassifier, plot_tree, export_text
 import matplotlib.pyplot as plt
-from sklearn.tree import export_text
 import pandas as pd
+from jinja2 import Environment, FileSystemLoader
+import os
 
-# Especifica la ruta del archivo CSV
-csv_file_path = '../dataset.csv'  # Reemplaza con la ruta correcta a tu archivo CSV
 
-# Lista de columnas que NO quieres usar para el entrenamiento (además de la columna objetivo)
-columnas_a_excluir = ["eth_src", "eth_dst", "ip_src", "ip_dst"]  # Añade aquí los nombres de las columnas que no quieres usar
+# Transformamos los int de float a int de nuevo
+def format_threshold(threshold):
+    if threshold == float('inf'):
+        return 'inf'
+    if threshold == int(threshold):
+        return str(int(threshold))
+    return f"{threshold:.2f}"
 
-# Lee el archivo CSV usando pandas
-try:
-    df = pd.read_csv(csv_file_path)
-except FileNotFoundError:
-    print(f"Error: El archivo CSV no se encontró en la ruta: {csv_file_path}")
-    exit()
 
-# La última columna es la variable objetivo (Y)
-nombre_columna_objetivo = df.columns[-1]
-y = df[nombre_columna_objetivo]
+# Transformamos las condidiones a condiciones válidas
+def condiciones_validas(cond : str) -> str:
+    '''
+    Define reglas especiales para ciertos casos
+    '''
+    
+    if cond == "src_port <= inf" or cond == "dst_port <= inf":
+        return "ip_proto == IPPROTO_TCP || ip_proto == IPPROTO_UDP"
 
-# Selecciona las columnas para las características (X), excluyendo la columna objetivo y las columnas especificadas
-columnas_caracteristicas = [col for col in df.columns if col != nombre_columna_objetivo and col not in columnas_a_excluir]
-x = df[columnas_caracteristicas]
+    # Añadir más reglas si es necesario
 
-# Pasamos la información de texto a números automáticamente para que
-# el modelo pueda funcionar. Esto convertirá columnas categóricas en varias columnas numéricas.
-x = pd.get_dummies(x)
+    return cond
 
-# Separamos los datos para test y para entrenamiento (20% test y 80% entrenamiento)
-# test_size indica el % usado para el test (0.2/1 = 20%)
-# random_state es una semilla de aleatoreidad, ponemos una para que sea
-# siempre la misma división de datos.
-x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
+# Se recorre el árbol de manera recursiva el árbol y se va generando el código C
+def generar_codigo_c(tree, feature_names, node=0, depth=3, feature_map=None):
+    indent = "    " * depth
 
-# Como criterio he elegido Gini
-# Como la DB podría ser grande, aunque splitter 'best' es lo que quieres,
-# ten en cuenta que podría tardar más en datasets grandes.
-# He puesto un max_depth de 4 para que no haya sobrecorrección y además computacionalmente cueste menos.
-# Puedes ajustarlo según tus necesidades.
-# Uso el mismo random_state que antes, al poner un random_state en teoría disminuyo la aleatoreidad entre repeticiones del mismo test
-modelo = DecisionTreeClassifier(criterion='gini', splitter='best', max_depth=4, random_state=42)
+    if feature_map is None:
+        feature_map = {name: name for name in feature_names}
 
-# construir el árbol
-modelo.fit(x_train, y_train)
+    if tree.feature[node] != -2:
+        nombre_feature = feature_map.get(feature_names[tree.feature[node]], feature_names[tree.feature[node]])
+        threshold = format_threshold(tree.threshold[node])
 
-# Aunque para el TFG no es necesario es interesante ver si con esta
-# configuración se obtendría una exactitud más o menos decente
-exactitud = modelo.score(x_test, y_test)
-print(f'La exactitud del modelo es: {exactitud: .2f}')
+        raw_cond = f"{nombre_feature} <= {threshold}"
+        cond = condiciones_validas(raw_cond)
+        codigo = f"{indent}if ({cond}) {{\n"
+        codigo += generar_codigo_c(tree, feature_names, tree.children_left[node], depth + 1, feature_map)
+        codigo += f"{indent}}} else {{ // {nombre_feature} > {threshold}\n"
+        codigo += generar_codigo_c(tree, feature_names, tree.children_right[node], depth + 1, feature_map)
+        codigo += f"{indent}}}\n"
+        return codigo
+    else:
+        clase = tree.value[node].argmax()
+        accion = "XDP_DROP" if clase == 1 else "XDP_PASS"
+        return f"{indent}action = {accion}; // Clase predicha: {clase}\n"
 
-# Visualizar el árbol
-plt.figure(figsize=(20, 10))
-plot_tree(modelo, filled=True, feature_names=x.columns, class_names=y.unique().astype(str)) # Ajusta las clases según tu dataset
-plt.show()
 
-# Visualizar el árbol en texto
-arbol_texto = export_text(modelo, feature_names=list(x.columns))
-print(arbol_texto)
+
+
+def main():
+    # Especifica la ruta del archivo CSV
+    csv_file_path = '../dataset.csv'
+
+    # Lista de columnas que NO quieres usar para el entrenamiento
+    columnas_a_excluir = ["eth_src", "eth_dst", "ip_src", "ip_dst"]
+
+    # Cargar el CSV
+    try:
+        df = pd.read_csv(csv_file_path)
+    except FileNotFoundError:
+        print(f"Error: El archivo CSV no se encontró en la ruta: {csv_file_path}")
+        exit()
+
+    # Última columna es la clase objetivo
+    nombre_columna_objetivo = df.columns[-1]
+    y = df[nombre_columna_objetivo]
+
+    # Columnas X sin las excluidas
+    columnas_caracteristicas = [col for col in df.columns if col != nombre_columna_objetivo and col not in columnas_a_excluir]
+    x = df[columnas_caracteristicas]
+    x = pd.get_dummies(x)
+
+    # División de datos
+    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
+
+    # Entrenar el modelo
+    modelo = DecisionTreeClassifier(criterion='gini', splitter='best', max_depth=4, random_state=42)
+    modelo.fit(x_train, y_train)
+    exactitud = modelo.score(x_test, y_test)
+    print(f'La exactitud del modelo es: {exactitud: .2f}')
+
+    # Mostrar el árbol
+    plt.figure(figsize=(20, 10))
+    plot_tree(modelo, filled=True, feature_names=x.columns, class_names=y.unique().astype(str))
+    plt.show()
+
+    # Exportar el árbol como texto
+    arbol_texto = export_text(modelo, feature_names=list(x.columns))
+    print(arbol_texto)
+
+    feature_map = {
+        "ip_ttl": "ip_ttl",
+        "ip_proto": "ip_proto",
+        "eth_type": "bpf_htons(eth_type)",
+        # Agrega más si tu dataset tiene otras columnas relevantes
+    }
+
+    codigo_arbol_c = generar_codigo_c(modelo.tree_, x.columns.tolist(), feature_map=feature_map)
+
+    env = Environment(loader=FileSystemLoader("."))
+    template = env.get_template("./xdp_kern.j2")
+
+    codigo_c = template.render(decision_tree=codigo_arbol_c)
+
+    # Guardar a archivo .c
+    with open("ransomware_tree.c", "w") as f:
+        f.write(codigo_c)
+
+    print("Archivo 'ransomware_tree.c' generado con éxito.")
+
+
+
+if __name__ == '__main__':
+    main()
