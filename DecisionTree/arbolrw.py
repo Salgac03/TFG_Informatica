@@ -24,6 +24,16 @@ def condiciones_validas(cond : str) -> str:
     if cond == "src_port <= inf" or cond == "dst_port <= inf":
         return "ip_proto == IPPROTO_TCP || ip_proto == IPPROTO_UDP"
 
+    if "protocolo_IP_TCP <=" in cond:
+        return "ip_proto == 6"
+    elif "protocolo_IP_TCP =" in cond: 
+        return "ip_proto != 6"
+
+    if "protocolo_IP_UDP <=" in cond:
+        return "ip_proto == 17"
+    elif "protocolo_IP_TCP =" in cond: 
+        return "ip_proto != 17"
+
     # Añadir más reglas si es necesario
 
     return cond
@@ -60,7 +70,7 @@ def main():
     csv_file_path = '../dataset.csv'
 
     # Lista de columnas que NO quieres usar para el entrenamiento
-    columnas_a_excluir = ["eth_src", "eth_dst", "ip_src", "ip_dst"]
+    columnas_a_excluir = ["eth_src", "eth_dst",  "ip_src", "ip_dst"]
 
     # Cargar el CSV
     try:
@@ -111,10 +121,10 @@ def main():
     codigo_c = template.render(decision_tree=codigo_arbol_c)
 
     # Guardar a archivo .c
-    with open("ransomware_tree.c", "w") as f:
+    with open("../XDP/arbol_prueba/xdp_kern.c", "w") as f:
         f.write(codigo_c)
 
-    print("Archivo 'ransomware_tree.c' generado con éxito.")
+    print("Archivo 'xdp_kern.c' generado con éxito en XDP/arbol_prueba.")
 
 
 

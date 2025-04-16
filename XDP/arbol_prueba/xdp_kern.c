@@ -79,7 +79,40 @@ int ransomware_tree(struct xdp_md *ctx) {
         __be16 src_port = get_src_port(ip, data, data_end);
         __be16 dst_port = get_dst_port(ip, data, data_end);
 
-        {{ decision_tree }}
+                    if (ip_ttl <= 123) {
+                if (ip_ttl <= 22) {
+                    if (ip_proto <= 60) {
+                        if (size <= 61) {
+                            action = XDP_DROP; // Clase predicha: 1
+                        } else { // size > 61
+                            action = XDP_DROP; // Clase predicha: 1
+                        }
+                    } else { // ip_proto > 60
+                        action = XDP_PASS; // Clase predicha: 0
+                    }
+                } else { // ip_ttl > 22
+                    action = XDP_PASS; // Clase predicha: 0
+                }
+            } else { // ip_ttl > 123
+                if (bpf_htons(eth_type) <= 34762) {
+                    if (ip_ttl <= 191.50) {
+                        if (ip_proto == IPPROTO_TCP || ip_proto == IPPROTO_UDP) {
+                            action = XDP_DROP; // Clase predicha: 1
+                        } else { // src_port > inf
+                            action = XDP_DROP; // Clase predicha: 1
+                        }
+                    } else { // ip_ttl > 191.50
+                        if (dst_port <= 2710.50) {
+                            action = XDP_DROP; // Clase predicha: 1
+                        } else { // dst_port > 2710.50
+                            action = XDP_PASS; // Clase predicha: 0
+                        }
+                    }
+                } else { // bpf_htons(eth_type) > 34762
+                    action = XDP_PASS; // Clase predicha: 0
+                }
+            }
+
 
     } else if (bpf_htons(eth_type) == ETH_P_IPV6) {
         action = XDP_PASS;
