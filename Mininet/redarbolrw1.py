@@ -8,14 +8,14 @@ from mininet.log import setLogLevel
 class SimpleTopo(Topo):
     """
     Topología simple compuesta por:
-      - hsrc: Host origen con IP 10.0.1.1/24
-      - hdst: Host destino con IP 10.0.2.1/24
+      - hsrc: Host origen con IP 10.0.1.1/24 y MAC constante
+      - hdst: Host destino con IP 10.0.2.1/24 y MAC constante
       - s1: Switch conectado a ambos hosts
     """
     def build(self):
-        # Crear hosts
-        hsrc = self.addHost('hsrc', ip='10.0.1.1/24')
-        hdst = self.addHost('hdst', ip='10.0.2.1/24')
+        # Crear hosts con direcciones MAC constantes
+        hsrc = self.addHost('hsrc', ip='10.0.1.1/24', mac='00:00:00:00:01:01')
+        hdst = self.addHost('hdst', ip='10.0.2.1/24', mac='00:00:00:00:02:02')
 
         # Crear switch
         s1 = self.addSwitch('s1')

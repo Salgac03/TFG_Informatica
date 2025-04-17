@@ -19,3 +19,11 @@ Para el primer árbol de decisión he seguido el siguiente diseño de red:
 ![Si no carga ver la imagen llamada ./diagramas/DiagramaRedArbol1.png del repositorio](./diagramas/DiagramaRedArbol1.png)
 
 El plan era hacer pruebas con iperf entre el router y hdst para ver cuanto afectaba el filtro de árbol al rendimiento de la red, el problema, es que no todos los paquetes que se mandan son TCP o UDP, por lo que tendré que hacer otra clase de tests para que pueda medir también el rendimiento al enviar otra clase de paquetes como ICMP o IGMP.
+
+## Red Árbol 2
+Teniendo en cuenta que el entorno de pruebas real consiste en una tarjeta de red que tiene dos puertos a nivel de enlace, para pruebas más realistas he usado una red más simple:
+
+
+![Si no carga ver la imagen llamada ./diagramas/DiagramaRedArbol2.png del repositorio](./diagramas/DiagramaRedArbol2.png)
+
+Esta implementación ayuda a que haya menos pérdidas de paquetes cuando se envían y que surjan también menos problemas relacionados con la resolución ARP de direcciones MAC, además de ser más parecida al entorno real, el próximo paso será tomar medidas con iperf.

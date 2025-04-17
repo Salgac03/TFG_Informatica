@@ -34,6 +34,19 @@ def condiciones_validas(cond : str) -> str:
     elif "protocolo_IP_TCP =" in cond: 
         return "ip_proto != 17"
 
+    if "ip_frag_flags_DF <=" in cond:
+        return "ip_frag_flags != 2"
+    elif "ip_frag_flags_DF >" in cond:
+        return "ip_frag_flags == 2"
+
+    if "ip_frag_flags_MF <=" in cond:
+        return "ip_frag_flags != 1"
+    elif "ip_frag_flags_MF >" in cond:
+        return "ip_frag_flags == 1"
+
+    if "ip_ttl" in cond:
+        return f"{cond} && ip_ttl != 0"
+
     # Añadir más reglas si es necesario
 
     return cond
@@ -70,7 +83,7 @@ def main():
     csv_file_path = '../dataset.csv'
 
     # Lista de columnas que NO quieres usar para el entrenamiento
-    columnas_a_excluir = ["eth_src", "eth_dst",  "ip_src", "ip_dst"]
+    columnas_a_excluir = ["eth_src", "timestamp","eth_dst",  "ip_src", "ip_dst"]
 
     # Cargar el CSV
     try:

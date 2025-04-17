@@ -46,6 +46,16 @@ Me di cuenta de que sin querer metí en la lista de columnas que no tenían que 
 y decidí volver a entrenar el árbol pero con este parámetro y fue sorprendente ver que la precisión se mantenía pero esta vez con un nivel menos de 
 profundidad, es decir profundidad máxima igual a 3 a pesar de que tenía permitido llegar a 4.
 
+## Autogeneración de Código C
+Como mejora al árbol de decisión he añadido la capacidad de autogenerar el código BPF/XDP una vez se ha entrenado el árbol de decisión, esto lo consigo
+recorriendo de manera recursiva el árbol, después genero la condición con el nombre del feature (parseado a nombre real) y con el threshold, después,
+paso la condición por una función que en ciertos casos la sustituye por una condición que sea válida, por ejemplo la condición `src_port <= inf` la cambia 
+por la condición `ip_proto == IPPROTO_TCP || ip_proto == IPPROTO_UDP` pues el hecho de que el puerto destino sea menor que infinito solo implica que el 
+puerto existe. Una vez la condición es válida si es parte del hijo izquierdo se mete en un if y si es el hijo derecho se mete en un else. He usado un template
+jinja con la estructura ya prediseñada del C, haciendo pruebas me he dado cuenta que lo más cómodo y que mejor resultado me ha dado para generar el código es 
+obtener los datos de las cabeceras IP antes de realizar el árbol, de manera que ya forman parte del template, si el paquete analizado no tiene cabecera IP
+estos datos valen 0.
+
 ## Citas
 Moro, S., Rita, P., & Cortez, P. (2014). Bank Marketing [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C5K306.
 
