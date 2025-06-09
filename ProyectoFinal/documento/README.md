@@ -1,7 +1,5 @@
-# tfgtfmthesisuam
+# Documento de TFG
 
-Este estilo está pensado como plantilla para la creación de los documentos de TFG, TFM y tesis de la Escuela Politécnica Superior.
+En este apartado del repositorio voy a ir subiendo los avances realizados en el documento final del Trabajo de Fin de Grado. Para realizar dicho documento estoy usando la plantilla oficial de LaTeX de la Universidad Autónoma de Madrid.
 
-Está pensado para que pueda ser modificado por cualquier usuario, ampliándolo con más funcionalidades, mejorando el código, la documentación o corrigiendo errores.
-
-Una vez modificado se solicita el merge de los cambios para que sea actualizado el estilo.
+Además del documento encontrarán el script `limpiar.sh` que elimina los ficheros auxiliares generados durante la compilación del PDF y el script `compilar.sh` que compila añadiendo tambien la bibliografía.
