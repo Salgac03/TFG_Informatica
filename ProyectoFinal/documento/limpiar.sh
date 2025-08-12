@@ -12,3 +12,5 @@ do
 	rm $i
 
 done
+
+rm *.aux *.lof *.toc *.out *.bbl *.blg *.idx *.ilg *.ind
