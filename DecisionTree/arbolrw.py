@@ -83,7 +83,7 @@ def main():
     csv_file_path = '../dataset.csv'
 
     # Lista de columnas que NO quieres usar para el entrenamiento
-    columnas_a_excluir = ["eth_src", "timestamp","eth_dst",  "ip_src", "ip_dst"]
+    columnas_a_excluir = ["eth_src", "eth_dst",  "ip_src", "ip_dst", "timestamp"]
 
     # Cargar el CSV
     try:
