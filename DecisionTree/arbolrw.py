@@ -44,6 +44,9 @@ def condiciones_validas(cond : str) -> str:
     elif "ip_frag_flags_MF >" in cond:
         return "ip_frag_flags == 1"
 
+    if cond == "ip_tot_len <= inf":
+        return "ip_tot_len != 0"
+
     if "ip_ttl" in cond:
         return f"{cond} && ip_ttl != 0"
 
@@ -83,7 +86,7 @@ def main():
     csv_file_path = '../dataset.csv'
 
     # Lista de columnas que NO quieres usar para el entrenamiento
-    columnas_a_excluir = ["eth_src", "eth_dst",  "ip_src", "ip_dst", "timestamp"]
+    columnas_a_excluir = ["eth_src", "eth_dst",  "ip_src", "ip_dst", "timestamp", "ip_ttl"]
 
     # Cargar el CSV
     try:
