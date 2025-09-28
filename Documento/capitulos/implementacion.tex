@@ -1,10 +1,24 @@
 \section{Arquitectura de la propuesta}
 
+En esta sección se ofrece una visión global de la arquitectura propuesta, describiendo los componentes principales que la conforman y el flujo de información entre ellos. Para facilitar la comprensión, se ha elaborado el diagrama mostrado en la figura \ref{diagrama_arquitectura}, que servirá como referencia a lo largo de la explicación. Dicho diagrama proporciona una perspectiva general de la integración entre los distintos módulos, sin entrar todavía en los detalles específicos de implementación, los cuales se desarrollan en la sección siguiente.
+
+La arquitectura de la implementación se organiza en tres bloques principales. El primero corresponde al tratamiento de los datos y el entrenamiento del árbol de decisión, mientras que el segundo se centra en la autogeneración del código XDP y el tercero en su posterior ejecución.
+
+En la primera fase, se seleccionan los conjuntos de paquetes que serán utilizados para el entrenamiento del árbol de decisión. Estos datos son procesados en el espacio de usuario mediante un script en Python, encargado de transformar la información en un fichero CSV apto para su uso en el proceso de entrenamiento. A continuación, otro script en Python utiliza dicho fichero CSV para entrenar el árbol de decisión, generando así un modelo inicial.
+
+En la segunda fase, el mismo script aplica un conjunto de reglas de traducción con el objetivo de convertir el árbol de decisión resultante en una serie de condiciones expresadas en código C restringido, compatibles con eBPF/XDP. Posteriormente, estas condiciones se integran en una plantilla Jinja, que permite generar automáticamente el programa XDP completo, el cual incluye tanto la lógica de clasificación derivada del árbol como el resto de estructuras auxiliares necesarias para su correcta ejecución.
+
+La tercera fase corresponde a la ejecución del sistema. En este punto, el proceso principal consiste en la utilización de un Makefile, encargado de automatizar la compilación y despliegue del entorno. Dicho Makefile genera, por un lado, el bytecode del programa XDP, y por otro, el ejecutable del programa en espacio de usuario. Este último tiene como funciones tanto la carga del bytecode en el kernel del sistema como la monitorización en tiempo real de los paquetes que son descartados o aceptados en función de las reglas definidas por el árbol de decisión.
+
+\begin{figure}[Arquitectura Implementación]{diagrama_arquitectura}{Diagrama con el flujo general de la implementación.}
+	\includegraphics[width=0.8\textwidth]{capturas/Arquitectura_implementacion.png}
+\end{figure}
+
 \section{Componentes}
 
-Los componentes de la arquitectura se dividen en tres módulos principales. El primero corresponde al árbol de decisión, entrenado mediante la biblioteca scikit-learn de Python. El segundo está constituido por el código XDP, el cual incluye una parte autogenerada a partir del árbol de decisión. Finalmente, el tercer módulo es el entorno Mininet, empleado para la ejecución de pruebas en un entorno virtual local. Cabe destacar el fichero DecisionTree/arbolrw.py, encargado tanto del entrenamiento del árbol de decisión como de la autogeneración del código C, apoyándose para ello en una plantilla Jinja.
+Los componentes de la arquitectura se organizan en tres módulos principales. El primero corresponde al tratamiento de datos y a su conversión desde paquetes de red a un fichero CSV. El segundo módulo está constituido por el árbol de decisión, entrenado mediante la biblioteca scikit-learn de Python. Finalmente, el tercer módulo corresponde al código XDP, el cual incluye una parte autogenerada a partir del árbol de decisión. Cabe destacar el fichero \verb|DecisionTree/arbolrw.py|, encargado tanto del entrenamiento del árbol de decisión como de la autogeneración del código C, apoyándose para ello en una plantilla Jinja.
 
-\subsection{Árbol de decisión}
+\subsection{Tratamiento de datos}
 
 El conjunto de datos empleado para el entrenamiento del árbol de decisión se ha generado a partir de un fichero CSV de 294,6 MB elaborado por el autor. Para su creación, se utilizó la versión más reciente del script pcap2csv.py, el cual permite la unión de dos o más ficheros PCAP en un único fichero CSV, así como la diferenciación entre paquetes de tráfico malicioso y legítimo mediante el uso de las banderas -l y -m. El script almacena únicamente información de los paquetes hasta el nivel de aplicación, sin analizar el contenido de este nivel, debido a la complejidad que supone obtener dichos datos en C a nivel de kernel.
 
@@ -14,15 +28,21 @@ Una vez transformado el paquete en diccionario, se añade al final la etiqueta `
 
 Los ficheros PCAP correspondientes al tráfico de ransomware fueron obtenidos, tal y como se explica en el apartado 2.1 por el trabajo de Eduardo Berrueta et al. entre los años 2015 y 2022\cite{qnyn-q136-20}. Por otro lado, el fichero PCAP con tráfico legítimo fue generado por el autor mediante la captura de tráfico durante una jornada laboral en un laboratorio universitario, registrando el uso normal de los dispositivos y recogiendo tráfico de protocolos como HTTP, HTTPS, DNS, SSH, entre otros. Con el objetivo de incrementar la precisión del árbol de decisión, se generó adicionalmente tráfico SMB2 mediante la copia de un fichero de gran tamaño a una unidad de almacenamiento ubicada en el CPD de la universidad.
 
-En el proceso de preparación del dataset, se eliminaron las direcciones IP, las direcciones MAC y el timestamp de los paquetes, debido al número limitado presente tanto en las capturas de tráfico malicioso como en las de tráfico legítimo. Con ello, se evitó que el árbol de decisión se apoyara en características poco representativas o irrelevantes para un entorno real. Como métrica de calidad se mantuvo el índice de Gini, dada su fiabilidad y buen rendimiento, y como estrategia de división se empleó el criterio best. Aunque se preveía que el aumento del tamaño del dataset respecto a las pruebas podría incrementar el tiempo de entrenamiento, en la práctica no se observó un impacto significativo. En caso contrario, se habría considerado cambiar la estrategia a random. En cuanto a la profundidad máxima del árbol, se fijó inicialmente en cuatro niveles, ya que en pruebas previas con otros datasets de paquetes de red no se apreciaron mejoras de precisión al superar este valor.
-
-Para entrenar el árbol de decisión, una vez definidas las columnas que serán eliminadas, se establece la variable x como el conjunto de columnas que forman parte de los datos de entrada y la variable y como la columna correspondiente al clasificador. A continuación, mediante la función \verb|train_test_split|, se divide el conjunto de datos de forma aleatoria, asignando el 80\% de las filas al entrenamiento y el 20\% restante a las pruebas, con el fin de evaluar la fiabilidad del modelo. Una vez realizada esta partición, se procede a entrenar el árbol utilizando los parámetros seleccionados y los datos de entrenamiento. Finalmente, se puede calcular la exactitud del modelo, si bien es recomendable interpretar este valor con cautela, dado que no siempre refleja de forma completamente sólida la capacidad de generalización del clasificador. El código correspondiente al entrenamiento del árbol puede consultarse en \ref{entrenamientoArbol}
-
-Durante el proceso de desarrollo se identificó un error en la configuración del entrenamiento: la variable \verb|eth_type| había sido incluida de manera inadvertida en la lista de columnas excluidas. Una vez corregida esta omisión y tras reentrenar el modelo, se observó que la precisión global se mantenía estable, aunque con una diferencia significativa en la complejidad del árbol, ya que la profundidad máxima alcanzada fue de tres niveles en lugar de cuatro, a pesar de que el límite establecido seguía siendo cuatro. Este comportamiento sugiere que la incorporación de \verb|eth_type| aporta capacidad predictiva al modelo, lo que permite una estructura más optimizada sin comprometer la precisión.
-
-Posteriormente, se decidió eliminar la variable TTL al comprobar que resultaba tan poco fiable como las direcciones IP, al introducir un nivel elevado de variabilidad. Tras esta modificación, el árbol resultante mostró una mayor amplitud, alcanzando ahora los cuatro niveles de profundidad. Aunque estas observaciones pudieran parecer superficiales, resultan de especial relevancia, ya que tanto el desarrollo del código como la generación automática de este se fundamentan en los árboles de decisión obtenidos, y en la evolución observada de uno respecto al otro.
+En el proceso de preparación del dataset, se eliminaron las direcciones IP, las direcciones MAC y el timestamp de los paquetes, debido al número limitado presente tanto en las capturas de tráfico malicioso como en las de tráfico legítimo. Con ello, se evitó que el árbol de decisión se apoyara en características poco representativas o irrelevantes para un entorno real. 
 
 \PythonCode[pcap2dict]{PCAP a Dict}{Fragmento de códgio que transforma parte de los datos de un paquete en un diccionario fácilmente convertible a CSV.}{../DecisionTree/pcap2csv.py}{39}{60}{39}
+
+\subsection{Árbol de decisión}
+
+En esta subsección se detalla el proceso de configuración y entrenamiento del árbol de decisión utilizado en el presente trabajo. Se explican los criterios adoptados para su construcción, las particularidades detectadas durante el desarrollo y las adaptaciones realizadas en función de los resultados obtenidos.
+
+Como métrica de calidad se mantuvo el índice de Gini, dada su fiabilidad y buen rendimiento, y como estrategia de división se empleó el criterio best. Aunque se preveía que el aumento del tamaño del dataset respecto a las pruebas pudiera incrementar el tiempo de entrenamiento, en la práctica no se observó un impacto significativo. En caso contrario, se habría considerado cambiar la estrategia a random. En cuanto a la profundidad máxima del árbol, se fijó inicialmente en cuatro niveles, ya que en pruebas previas con otros conjuntos de datos no se apreciaron mejoras de precisión al superar este valor.
+
+Para entrenar el árbol de decisión, una vez definidas las columnas que serían eliminadas, se estableció la variable \verb|x| como el conjunto de columnas correspondientes a los datos de entrada y la variable \verb|y| como la columna asociada al clasificador. A continuación, mediante la función \verb|train_test_split|, se dividió el conjunto de datos de forma aleatoria, asignando el 80\% de las filas al entrenamiento y el 20\% restante a las pruebas, con el fin de evaluar la fiabilidad del modelo. Una vez realizada esta partición, se procedió a entrenar el árbol utilizando los parámetros seleccionados y los datos de entrenamiento. Finalmente, se calculó la exactitud del modelo, si bien este valor debe interpretarse con cautela, dado que no siempre refleja de forma sólida la capacidad de generalización del clasificador. El código correspondiente al entrenamiento del árbol puede consultarse en el fragmento de código \ref{entrenamientoArbol}.
+
+Durante el desarrollo se identificó un error en la configuración del entrenamiento: la variable \verb|eth_type| había sido incluida por error en la lista de columnas excluidas. Una vez corregida esta omisión y tras reentrenar el modelo, se observó que la precisión global se mantenía estable, aunque con una diferencia relevante en la complejidad del árbol, ya que la profundidad máxima alcanzada fue de tres niveles en lugar de cuatro, a pesar de que el límite establecido seguía siendo cuatro. Este comportamiento sugiere que la incorporación de \verb|eth_type| aporta capacidad predictiva al modelo, permitiendo una estructura más optimizada sin comprometer la precisión.
+
+Posteriormente, se decidió eliminar la variable TTL al comprobar que resultaba tan poco fiable como las direcciones IP, introduciendo un nivel elevado de variabilidad. Tras esta modificación, el árbol resultante mostró una mayor amplitud, alcanzando ahora los cuatro niveles de profundidad. Aunque estas observaciones pudieran parecer superficiales, resultan de especial relevancia, ya que tanto el desarrollo del código como la generación automática de este se fundamentan en los árboles de decisión obtenidos, y en la evolución observada de uno respecto al otro.
 
 \PythonCode[entrenamientoArbol]{Entrenamiento Árbol}{Fragmento de códgio de arbolrw.py encargado de entrenar el árbol de decisión.}{../DecisionTree/arbolrw.py}{85}{114}{85}
 
@@ -69,29 +89,3 @@ El núcleo del programa lo constituye la función principal \verb|ransomware_tre
 En conjunto, esta plantilla actúa como un esqueleto flexible que proporciona toda la estructura necesaria para el filtrado de tráfico en el kernel, a la vez que facilita la integración dinámica del árbol de decisión mediante Jinja. Su diseño modular permite mantener un programa ligero, eficiente y adaptable a distintos escenarios de clasificación de tráfico malicioso. La función principal puede verse en el fragmento de código \ref{xdp_kern_jinja}.
 
 \CCode[xdp_kern_jinja]{Plantilla Jinja XDP espacio de Kernel}{Fragmento de códgio que muestra la función principal XDP en la plantilla Jinja}{../DecisionTree/xdp_kern.j2}{104}{145}{104}
-
-\subsection{Mininet}
-
-Mininet es un emulador de red que permite diseñar topologías compuestas por hosts finales, switches, routers (aunque de manera no nativa, ofreciendo únicamente el reenvío de paquetes) y enlaces dentro de un único kernel Linux. Además, dispone de una API accesible desde Python, lo que facilita el uso de este lenguaje de programación para la creación y configuración de las topologías de red\cite{lantz2021mininet}.
-
-Como entorno de pruebas, se utilizó Mininet para implementar una topología inicial, que se muestra en la figura \ref{red-mininet-1}. Esta configuración consistía en dos hosts, cada uno conectado a un switch distinto, mientras que ambos switches se encontraban interconectados a un único router. Esta topología permitió realizar pruebas preliminares sobre el impacto del filtro basado en árboles de decisión en el rendimiento de la red.
-
-Si bien esta configuración resultó útil para evaluar el funcionamiento básico del filtro, no era completamente representativa de un escenario real con una tarjeta de red equipada con DPU. Aunque dentro de la tarjeta los paquetes llegan al procesador de la DPU a través de Ethernet, la topología de Mininet no reproduce de manera exacta la interacción de los paquetes con el hardware especializado de la NIC. Al añadir más de una interfaz switch además del router, se introducen latencias adicionales que no existen en la NIC, por lo que este diseño inicial sirve únicamente para pruebas preliminares y no refleja completamente las condiciones de un entorno con DPU.
-
-\begin{figure}[Primera Topología de Red]{red-mininet-1}{Primer diseño de topología de red usada en Mininet preliminares.}
-	\includegraphics[width=0.9\textwidth]{capturas/DiagramaRedArbol1.png}
-\end{figure}
-
-Teniendo en cuenta que el entorno de pruebas real consiste en una tarjeta de red con dos puertos a nivel de enlace, se decidió simplificar la topología de Mininet para realizar pruebas más realistas. La red utilizada consta únicamente de dos host conectados a un único switch, eliminando la necesidad de routers adicionales o interfaces suplementarias tal y como se puede ver en la figura \ref{red-mininet-2}. Esta simplificación permite reducir la complejidad de la topología y minimizar factores externos que podrían afectar a las mediciones, como las latencias introducidas por componentes adicionales de la red virtual.
-
-Además, esta configuración simplificada contribuye a disminuir la pérdida de paquetes durante las pruebas y reduce problemas relacionados con la resolución de direcciones MAC mediante ARP. Al aproximarse más al comportamiento de un entorno real con DPU, la topología proporciona un marco adecuado para medir el rendimiento de la red bajo la influencia del filtro de árbol de decisión. El siguiente paso en el proceso consistirá en realizar pruebas de rendimiento utilizando la herramienta iperf, lo que permitirá cuantificar de manera más precisa el impacto del filtrado sobre el tráfico de red.
-
-\begin{figure}[Topología de Red Final]{red-mininet-2}{Diseño de topología de red usada en Mininet para pruebas.}
-	\includegraphics[width=0.55\textwidth]{capturas/DiagramaRed2.png}
-\end{figure}
-
-En los fragmentos de código \ref{redarbolrw} y \ref{redarbolrw1} se muestran extractos de los ficheros redarbolrw.py y redarbolrw1.py, correspondientes a la definición de la topología preliminar y de la topología definitiva, respectivamente.
-
-\PythonCode[redarbolrw]{Red Árbol Preeliminar}{Fragmento de códgio que define la topología de red usada en las pruebas preeliminares.}{../Mininet/redarbolrw.py}{22}{54}{22}
-
-\PythonCode[redarbolrw1]{Red Árbol Final}{Fragmento de códgio que define la topología de red usada en las pruebas finales.}{../Mininet/redarbolrw1.py}{8}{25}{8}

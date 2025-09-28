@@ -2,6 +2,7 @@ from scapy.all import PcapReader, sendp, Ether
 import argparse
 import time
 import random
+import csv
 from typing import List, Iterator
 
 def send_packets(packets, src_mac, dst_mac, iface):
@@ -49,49 +50,76 @@ def main():
     parser.add_argument('--src_mac', type=str, help='Dirección MAC de origen', required=True)
     parser.add_argument('--dst_mac', type=str, help='Dirección MAC de destino', required=True)
     parser.add_argument('--iface', type=str, help='Interfaz de red para enviar los paquetes', required=True)
+    parser.add_argument('--rate', type=int, default=100, help='Tasa de envío en paquetes por segundo (pps)')
+    parser.add_argument('--duration', type=int, default=10, help='Duración de la transmisión en segundos')
+    parser.add_argument('--log', type=str, help='Archivo CSV para registrar los envíos', default=None)
     args = parser.parse_args()
 
     src_mac = args.src_mac
     dst_mac = args.dst_mac
     iface = args.iface
+    rate = args.rate
+    duration = args.duration
 
     mfiles_generator = packet_generator(args.mfiles)
     lfiles_generator = packet_generator(args.lfiles)
 
     count_mfiles = 0
     count_lfiles = 0
+    pid = 0  # identificador de paquete
+
+    # Configurar log si se pide
+    logfile = None
+    writer = None
+    if args.log:
+        logfile = open(args.log, 'w', newline='')
+        writer = csv.writer(logfile)
+        writer.writerow(["id", "timestamp_ms", "label"])  # cabecera CSV
+
+    start_time = time.time()
+    next_time = start_time
+    interval = 1.0 / rate  # tiempo entre paquetes
 
     try:
-        while True:
+        while time.time() - start_time < duration:
             random_number = random.randint(0, 100)
+            label = "l" if random_number % 2 == 0 else "m"
+
             packets_to_send = []
-            sent_this_iteration = 0
-
-            if random_number % 2 == 0:
-                for _ in range(4):  # Selecciona 4 paquetes del conjunto -l
-                    try:
+            for _ in range(4):  # enviar 4 paquetes por iteración
+                try:
+                    if label == "l":
                         packet = next(lfiles_generator)
-                        packets_to_send.append(packet)
-                    except StopIteration:
-                        print("Se alcanzaron todos los paquetes de los archivos -l.")
-                        break
-                sent_this_iteration = send_packets(packets_to_send, src_mac, dst_mac, iface)
-                count_lfiles += sent_this_iteration
-            else:
-                for _ in range(4):  # Selecciona 4 paquetes del conjunto -m
-                    try:
+                        count_lfiles += 1
+                    else:
                         packet = next(mfiles_generator)
-                        packets_to_send.append(packet)
-                    except StopIteration:
-                        print("Se alcanzaron todos los paquetes de los archivos -m.")
-                        break
-                sent_this_iteration = send_packets(packets_to_send, src_mac, dst_mac, iface)
-                count_mfiles += sent_this_iteration
+                        count_mfiles += 1
+                    packets_to_send.append(packet)
+                except StopIteration:
+                    print(f"Se agotaron los paquetes de los archivos -{label}.")
+                    break
 
-            time.sleep(0.2)  # Retraso de 200 ms entre iteraciones
+            if packets_to_send:
+                send_packets(packets_to_send, src_mac, dst_mac, iface)
 
+                if writer:
+                    ts_ms = int(time.time() * 1000)
+                    for _ in packets_to_send:
+                        writer.writerow([pid, ts_ms, label])
+                        pid += 1
+
+            # Control de tasa: espera hasta el siguiente instante
+            next_time += interval
+            sleep_time = next_time - time.time()
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            else:
+                next_time = time.time()  # si nos atrasamos, reajustamos
     except KeyboardInterrupt:
         print("\nScript interrumpido manualmente.")
+    finally:
+        if logfile:
+            logfile.close()
 
     print("\nResumen:")
     print(f"Paquetes enviados desde archivos -m: {count_mfiles}")
