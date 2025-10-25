@@ -49,6 +49,36 @@ Iperf presenta la limitación de generar tráfico sintético exclusivamente con 
 \PythonCode[script_reenvio]{Script de Reenvío de Paquetes}{Fragmento de códgio del script de reenvío.}{../Mininet/trafico_eth.py}{83}{122}{83}
 
 \subsection{TCPDump}
+Tanto TCPReplay como el script desarrollado en este trabajo, a diferencia de Iperf, no disponen de funcionalidades propias para medir el rendimiento de la red, limitándose únicamente al reenvío de paquetes. Por este motivo, resulta necesario complementar su uso con herramientas de captura de tráfico, como TCPDump, que permiten registrar los paquetes transmitidos y analizar posteriormente métricas relevantes como el throughput, la latencia o la pérdida de paquetes\cite{tcpdump-manpage}.
 
+TCPDump es una herramienta de línea de comandos que permite capturar y visualizar paquetes de red en tiempo real. Es capaz de filtrar el tráfico en función de distintos criterios, como direcciones IP, puertos o protocolos, y de guardar las capturas en ficheros para su análisis posterior. Además, TCPDump permite examinar cabeceras de protocolos como Ethernet, IP, TCP y UDP, proporcionando información detallada sobre el flujo de datos entre hosts, lo que lo convierte en un recurso fundamental para evaluar cómo afectan mecanismos de filtrado, como el árbol de decisión XDP, al rendimiento de la red.
+
+\section{Métricas Relevantes}
+
+Para poder analizar el rendimiento del sistema, tanto con el árbol de decisión activo como con este inactivo, es necesario centrarse en una serie de métricas relevantes. Estas métricas permitirán cuantificar de manera objetiva el impacto que el árbol de decisión tiene sobre el comportamiento general del sistema, proporcionando una base sólida para la comparación entre ambos escenarios.
+
+La primera métrica a considerar es el rendimiento o \textit{throughput}, el cual mide la cantidad de información útil que se recibe por segundo. Dado que se trata de un entorno de red, el estándar es expresar esta métrica en bits por segundo (bps) en lugar de utilizar unidades como bytes por segundo u otras equivalentes, ya que permite una representación más precisa y ampliamente aceptada en el ámbito de las comunicaciones de red.
+
+\begin{equation}[eq:throughput]{Cálculo del throughput}
+  \text{Throughput (bps)} = \frac{8 \times B_{\text{recibidos}}}{T}
+\end{equation}
+
+Además de medir el rendimiento en bits por segundo, resulta de interés cuantificar también el número de paquetes por segundo (PPS) que el sistema es capaz de procesar. Aunque a primera vista esta métrica pueda parecer redundante respecto a la anterior, ambas reflejan aspectos distintos del comportamiento del sistema. En efecto, una misma cantidad total de información puede estar dividida en un número diferente de paquetes, y cada uno de ellos requiere una serie de operaciones de procesamiento que deben ejecutarse de manera independiente --como la lectura de cabeceras, la evaluación de condiciones o el acceso a estructuras de datos internas--. Por este motivo, el rendimiento medido en paquetes por segundo permite identificar posibles cuellos de botella asociados al manejo intensivo de paquetes pequeños y evaluar con mayor precisión el impacto del árbol de decisión sobre la carga computacional del sistema.
+
+\begin{equation}[eq:pps]{Cálculo de paquetes por segundo}
+	\text{PPS} = \frac{N_{\text{paquetes}}}{t_{\text{fin}}-t_{\text{inicio}}}
+\end{equation}
+
+Otra métrica fundamental en un entorno de red es el porcentaje de pérdida de paquetes (\textit{packet loss rate}). Este parámetro resulta esencial para evaluar la fiabilidad y eficiencia de un sistema, ya que un alto rendimiento en términos de bits por segundo (bps) no necesariamente implica un funcionamiento óptimo si el sistema no es capaz de procesar o asimilar correctamente todo el tráfico recibido. En este sentido, un porcentaje elevado de pérdida puede indicar cuellos de botella, saturación del sistema o limitaciones en la capacidad de procesamiento del tráfico, comprometiendo la eficacia global de la solución.
+
+\begin{equation}[eq:perdida]{Cálculo del porcentaje de pérdida}
+  \text{Pérdida (\%)} = 100 \times \frac{N_{\text{enviados}} - N_{\text{recibidos}}}{N_{\text{enviados}}}
+\end{equation}
+
+No obstante, la interpretación de esta métrica requiere un análisis diferenciado cuando el filtro basado en el árbol de decisión se encuentra activo. En este caso, parte de los paquetes son descartados de manera intencionada por el propio filtro al ser clasificados como potenciales amenazas. Por tanto, resulta fundamental distinguir entre los paquetes perdidos debido a posibles cuellos de botella generados al añadir una nueva capa de procesamiento y aquellos paquetes que son eliminados de manera deliberada por el filtro como parte de su funcionamiento normal. Esta distinción permite evaluar con precisión tanto la eficiencia del sistema como la eficacia del mecanismo de filtrado implementado.
+
+\begin{equation}[eq:perdida arbor]{Cálculo del porcentaje de pérdida con árbol activo}
+  \text{Pérdida Real(\%)} = 100 \times \frac{N_{\text{enviados}} - N_{\text{recibidos}} - N_{\text{filtrados}}}{N_{\text{enviados}}}
+\end{equation}
 
 \section{Metodología Seguida}
