@@ -1,0 +1,1 @@
+python3 trafico_eth.py -m ../../CryLock_24012021.pcap -l ../../Legitimo.pcap --src_mac 00:00:00:00:01:01  --dst_mac 00:00:00:00:02:02 --rate 200 --duration 20  --iface hsrc-eth0

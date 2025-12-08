@@ -66,7 +66,7 @@ def main():
 
     count_mfiles = 0
     count_lfiles = 0
-    pid = 0  # identificador de paquete
+    pid = 0
 
     # Configurar log si se pide
     logfile = None
@@ -74,11 +74,21 @@ def main():
     if args.log:
         logfile = open(args.log, 'w', newline='')
         writer = csv.writer(logfile)
-        writer.writerow(["id", "timestamp_ms", "label"])  # cabecera CSV
+        writer.writerow(["id", "timestamp_ms", "label"])
 
     start_time = time.time()
     next_time = start_time
-    interval = 1.0 / rate  # tiempo entre paquetes
+    
+    # ------------------------------------------------------------------
+    # CAMBIO CRUCIAL: Ajustar el intervalo por el tamaño del lote (4 paquetes)
+    # interval ahora representa el tiempo que debe pasar entre cada lote de 4,
+    # para que la tasa total sea igual a 'rate'.
+    # ------------------------------------------------------------------
+    LOTE_SIZE = 4
+    if rate > 0:
+        interval = LOTE_SIZE / rate
+    else:
+        interval = 0 # Evitar división por cero
 
     try:
         while time.time() - start_time < duration:
@@ -86,7 +96,7 @@ def main():
             label = "l" if random_number % 2 == 0 else "m"
 
             packets_to_send = []
-            for _ in range(4):  # enviar 4 paquetes por iteración
+            for _ in range(LOTE_SIZE): # enviar 4 paquetes por iteración
                 try:
                     if label == "l":
                         packet = next(lfiles_generator)
@@ -108,13 +118,13 @@ def main():
                         writer.writerow([pid, ts_ms, label])
                         pid += 1
 
-            # Control de tasa: espera hasta el siguiente instante
+            # Control de tasa: espera hasta el siguiente instante (usando el intervalo corregido)
             next_time += interval
             sleep_time = next_time - time.time()
             if sleep_time > 0:
                 time.sleep(sleep_time)
             else:
-                next_time = time.time()  # si nos atrasamos, reajustamos
+                next_time = time.time()
     except KeyboardInterrupt:
         print("\nScript interrumpido manualmente.")
     finally:

@@ -1,0 +1,3 @@
+wk: línea ord.:1: (FILENAME=- FNR=1) fatal: se intenta acceder al campo -5
+awk: línea ord.:1: (FILENAME=- FNR=1) fatal: se intenta acceder al campo -1
+awk: línea ord.:1: (FILENAME=- FNR=1) fatal: se intenta acceder al campo -1
