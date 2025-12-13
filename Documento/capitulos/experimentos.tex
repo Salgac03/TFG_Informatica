@@ -1,3 +1,4 @@
+\begin{comment}
 \section{Entorno de prueba Mininet}
 
 En el desarrollo de este trabajo, Mininet se ha considerado como uno de los entornos de prueba más relevantes. Su flexibilidad y facilidad de integración lo convierten en una herramienta adecuada para reproducir escenarios de red y evaluar el impacto del sistema de filtrado propuesto en condiciones controladas.
@@ -25,6 +26,31 @@ En los fragmentos de código \ref{redarbolrw} y \ref{redarbolrw1} se muestran ex
 \PythonCode[redarbolrw]{Red Árbol Preeliminar}{Fragmento de códgio que define la topología de red usada en las pruebas preeliminares.}{../Mininet/redarbolrw.py}{22}{54}{22}
 
 \PythonCode[redarbolrw1]{Red Árbol Final}{Fragmento de códgio que define la topología de red usada en las pruebas finales.}{../Mininet/redarbolrw1.py}{8}{25}{8}
+
+\end{comment}
+
+\section{Entorno AWS}
+
+AWS (Amazon Web Services) es, según los datos publicados por Statista\cite{statista-cloud-marketshare}, el servicio de computación en la nube más utilizado a nivel mundial, alcanzando una cuota de mercado del 29 \% en el tercer trimestre de 2025, siendo esta la información más reciente disponible en el momento de elaboración del presente trabajo.
+
+Este proveedor es ampliamente reconocido por la flexibilidad de su plataforma, que permite desplegar arquitecturas heterogéneas y adaptadas a distintos escenarios de computación y redes. En el contexto de este proyecto, AWS se emplea con el objetivo de simular, de la manera más realista posible, una topología de red en la que estaría presente una SmartNIC, pero sin disponer físicamente de dicho dispositivo.
+
+Para ello, se hace uso de varios componentes fundamentales de la plataforma. El primero de ellos es la VPC (Virtual Private Cloud)\cite{aws-vpc}, que constituye una red virtual aislada con un funcionamiento análogo al de las redes tradicionales de los centros de datos, con la particularidad de que se ejecuta sobre uno o varios centros de datos de AWS —en este caso, únicamente en una región con el fin de minimizar la latencia— y permanece completamente aislada del resto de infraestructuras de la nube. Dentro de una VPC es necesario definir una o más subredes, que representan rangos específicos de direcciones IP asociados a dicha red virtual\cite{aws-subnet}.
+
+Finalmente, el elemento central utilizado en este trabajo son las instancias EC2 (Elastic Compute Cloud)\cite{aws-ec2}, que constituyen máquinas virtuales ejecutadas sobre el hardware físico de Amazon. AWS dispone de múltiples tipos de instancias EC2 optimizadas para diferentes casos de uso; la selección concreta realizada para este proyecto, así como su justificación técnica, será detallada posteriormente.
+
+La topología de la nube AWS del proyecto consta ---tal y como se puede ver en la figura \ref{red-aws}--- de una única VPC que a su vez posee una única Subred, en ella se encuentran dos instancias EC2. La primera de ella es la encargada de emular el router y por tanto de enviar el tráfico para las pruebas, la segunda es la que emula la SmartNIC, esta posee dos interfaces de red, la primera es la encargada de recibir el tráfico de la primera instancia EC2, la segunda emula la interfaz de red asociada a la DPU de la Smart NIC y es en la que se va a ejecutar el filtro XDP.
+
+\begin{figure}[Topología de Red AWS]{red-aws}{Diseño de topología de red usada en AWS para pruebas.}
+	\includegraphics[width=1 \textwidth]{capturas/Diagrama_AWS_SmartNIC.png}
+\end{figure}
+
+La selección del tipo de instancia EC2 utilizada en cada caso se ha realizado en función de los requisitos específicos del rol que debían desempeñar dentro de la topología experimental. En primer lugar, para la instancia destinada a emular el router se optó por el tipo t3.micro\cite{aws-t3-micro}, dado que se trata de una instancia genérica, ligera, con recursos computacionales moderados y un coste reducido, características que se alinean adecuadamente con el comportamiento habitual de los routers convencionales en entornos reales.
+
+La elección de la instancia encargada de simular el comportamiento de una SmartNIC resultó más compleja, ya que fue necesario considerar varios criterios técnicos. En primer lugar, debía tratarse de un tipo de instancia compatible con XDP o que, con modificaciones mínimas, pudiera ofrecer dicha compatibilidad. En segundo lugar, era imprescindible garantizar que el hipervisor asociado introdujera la menor latencia posible, dado que la demora añadida por la virtualización podría distorsionar los resultados del experimento. Por último, era necesario disponer de una capacidad de cómputo comparable a la de una SmartNIC real ---o ligeramente superior, para compensar la latencia residual del hipervisor--- evitando, en cualquier caso, seleccionar una instancia con recursos excesivamente elevados que desvirtuaran la simulación.
+
+Atendiendo a estos criterios, se seleccionó la instancia c6gn.large\cite{aws-c6gn-large} para emular la SmartNIC. Este tipo de instancia se ejecuta sobre la arquitectura AWS Nitro v4\cite{aws-nitro}, la cual desplaza parte de las funciones del hipervisor a hardware dedicado, reduciendo significativamente la latencia y ofreciendo un entorno más adecuado para la ejecución de tecnologías de bajo nivel como XDP.
+
 
 \section{Herramientas}
 
