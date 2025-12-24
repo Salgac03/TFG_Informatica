@@ -1,17 +1,11 @@
 from mininet.net import Mininet
 from mininet.topo import Topo
-from mininet.node import OVSController, OVSSwitch
+from mininet.node import OVSSwitch
 from mininet.link import TCLink
 from mininet.cli import CLI
 from mininet.log import setLogLevel
 
 class SimpleTopo(Topo):
-    """
-    Topología simple compuesta por:
-      - hsrc: Host origen con IP 10.0.1.1/24 y MAC constante
-      - hdst: Host destino con IP 10.0.1.2/24 y MAC constante
-      - s1: Switch conectado a ambos hosts
-    """
     def build(self):
         hsrc = self.addHost(
             'hsrc',
@@ -24,7 +18,8 @@ class SimpleTopo(Topo):
             mac='00:00:00:00:02:02'
         )
 
-        s1 = self.addSwitch('s1')
+        s1 = self.addSwitch('s1', failMode='standalone')
+
         self.addLink(hsrc, s1)
         self.addLink(hdst, s1)
 
@@ -33,7 +28,7 @@ def run():
 
     net = Mininet(
         topo=topo,
-        controller=OVSController,
+        controller=None,
         switch=OVSSwitch,
         link=TCLink,
         autoSetMacs=False
@@ -41,7 +36,6 @@ def run():
 
     net.start()
 
-    # Montar BPF (necesario para eBPF/XDP)
     net['hdst'].cmd('mount -t bpf bpf /sys/fs/bpf')
 
     print("Ping test from hsrc to hdst:")
