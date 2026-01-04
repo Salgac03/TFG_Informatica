@@ -9,6 +9,10 @@ MULTIARCH := $(shell gcc -print-multiarch)
 # Rutas de inclusión para el kernel
 KERNEL_INCLUDES = -I/usr/include/$(MULTIARCH) -I/usr/include -I.
 
+# flags/libs correctos para libbpf
+LIBBPF_CFLAGS := $(shell pkg-config --cflags libbpf 2>/dev/null)
+LIBBPF_LIBS   := $(shell pkg-config --libs libbpf 2>/dev/null) -ldl
+
 # Archivos fuente y de salida
 KERN_SRC = xdp_kern.c
 USR_SRC = xdp_usr.c
@@ -24,7 +28,7 @@ $(KERN_OBJ): $(KERN_SRC)
 
 # Compilar el programa de espacio de usuario
 $(USR_BIN): $(USR_SRC)
-	$(CC) $(CFLAGS) $(USR_SRC) -o $(USR_BIN) -lbpf
+	$(CC) $(CFLAGS) $(LIBBPF_CFLAGS) $(USR_SRC) -o $(USR_BIN) $(LIBBPF_LIBS)
 
 # Limpiar archivos generados
 clean:
