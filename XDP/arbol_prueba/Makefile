@@ -3,7 +3,11 @@ CLANG = clang
 CC = gcc
 CFLAGS = -O2
 BPF_FLAGS = -target bpf  # Opciones para compilar correctamente BPF
-KERNEL_INCLUDES = -I/usr/include -I.      # Rutas de inclusión para el kernel
+
+MULTIARCH := $(shell gcc -print-multiarch)
+
+# Rutas de inclusión para el kernel
+KERNEL_INCLUDES = -I/usr/include/$(MULTIARCH) -I/usr/include -I.
 
 # Archivos fuente y de salida
 KERN_SRC = xdp_kern.c
@@ -16,7 +20,7 @@ all: $(KERN_OBJ) $(USR_BIN)
 
 # Compilar el programa del kernel
 $(KERN_OBJ): $(KERN_SRC)
-	$(CLANG) $(BPF_FLAGS) $(KERNEL_INCLUDES) -g -O2 -mcpu=v1 -c $(KERN_SRC) -o $(KERN_OBJ)  # Agregar -g para la información de depuración
+	$(CLANG) $(BPF_FLAGS) $(KERNEL_INCLUDES) -g -O2 -mcpu=v1 -c $(KERN_SRC) -o $(KERN_OBJ)
 
 # Compilar el programa de espacio de usuario
 $(USR_BIN): $(USR_SRC)
