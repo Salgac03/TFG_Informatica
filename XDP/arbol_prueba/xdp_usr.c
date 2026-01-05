@@ -19,32 +19,43 @@ static void handle_sigint(int sig)
     stop = 1;
 }
 
-/* Compat: usa la API XDP que exista en la libbpf del sistema */
-static int xdp_set_link_fd_compat(int ifindex, int prog_fd, __u32 flags)
+/* Abre libbpf explícitamente (evita RTLD_DEFAULT) */
+static void *dlopen_libbpf(void)
 {
-    void *handle = NULL;
-    void *sym = NULL;
+    void *h = dlopen("libbpf.so.1", RTLD_NOW | RTLD_LOCAL);
+    if (!h)
+        h = dlopen("libbpf.so", RTLD_NOW | RTLD_LOCAL);
+    return h;
+}
 
-    /* Intentar cargar libbpf explícitamente (evita RTLD_DEFAULT) */
-    handle = dlopen("libbpf.so.1", RTLD_NOW | RTLD_LOCAL);
-    if (!handle) {
-        handle = dlopen("libbpf.so", RTLD_NOW | RTLD_LOCAL);
-    }
-    if (!handle) {
-        /* Si no se puede abrir, devolvemos error */
+/* Compat: usa la API XDP que exista en la libbpf del sistema
+ * Prioridad:
+ *  1) bpf_xdp_attach/bpf_xdp_detach (preferida en libbpf modernas: 1.3+)
+ *  2) bpf_set_link_xdp_fd_opts (legacy intermedia)
+ *  3) bpf_set_link_xdp_fd (legacy antigua: funciona en 0.5 típicamente)
+ *
+ * Importante: usamos typedefs con 'const void *' para opts para no depender
+ * de structs nuevas en headers viejos.
+ */
+static int xdp_attach_compat(int ifindex, int prog_fd, __u32 flags)
+{
+    void *handle = dlopen_libbpf();
+    void *sym;
+
+    if (!handle)
         return -ENOSYS;
-    }
 
-    /* 1) API antigua */
-    sym = dlsym(handle, "bpf_set_link_xdp_fd");
+    /* 1) API moderna */
+    sym = dlsym(handle, "bpf_xdp_attach");
     if (sym) {
-        int (*fn)(int, int, __u32) = (int (*)(int, int, __u32))sym;
-        int ret = fn(ifindex, prog_fd, flags);
+        int (*fn)(int, int, __u32, const void *) =
+            (int (*)(int, int, __u32, const void *))sym;
+        int ret = fn(ifindex, prog_fd, flags, NULL);
         dlclose(handle);
         return ret;
     }
 
-    /* 2) API más nueva (opts) */
+    /* 2) Legacy con opts */
     sym = dlsym(handle, "bpf_set_link_xdp_fd_opts");
     if (sym) {
         int (*fn)(int, int, __u32, const void *) =
@@ -54,14 +65,67 @@ static int xdp_set_link_fd_compat(int ifindex, int prog_fd, __u32 flags)
         return ret;
     }
 
+    /* 3) Legacy más vieja */
+    sym = dlsym(handle, "bpf_set_link_xdp_fd");
+    if (sym) {
+        int (*fn)(int, int, __u32) = (int (*)(int, int, __u32))sym;
+        int ret = fn(ifindex, prog_fd, flags);
+        dlclose(handle);
+        return ret;
+    }
+
     dlclose(handle);
     return -ENOSYS;
 }
 
-int main(int argc, char **argv) {
-    struct bpf_object *obj;
-    int prog_fd, map_fd;
+static int xdp_detach_compat(int ifindex, __u32 flags)
+{
+    void *handle = dlopen_libbpf();
+    void *sym;
+
+    if (!handle)
+        return -ENOSYS;
+
+    /* 1) API moderna */
+    sym = dlsym(handle, "bpf_xdp_detach");
+    if (sym) {
+        int (*fn)(int, __u32, const void *) =
+            (int (*)(int, __u32, const void *))sym;
+        int ret = fn(ifindex, flags, NULL);
+        dlclose(handle);
+        return ret;
+    }
+
+    /* 2) Legacy con opts: detach = prog_fd = -1 */
+    sym = dlsym(handle, "bpf_set_link_xdp_fd_opts");
+    if (sym) {
+        int (*fn)(int, int, __u32, const void *) =
+            (int (*)(int, int, __u32, const void *))sym;
+        int ret = fn(ifindex, -1, flags, NULL);
+        dlclose(handle);
+        return ret;
+    }
+
+    /* 3) Legacy más vieja */
+    sym = dlsym(handle, "bpf_set_link_xdp_fd");
+    if (sym) {
+        int (*fn)(int, int, __u32) = (int (*)(int, int, __u32))sym;
+        int ret = fn(ifindex, -1, flags);
+        dlclose(handle);
+        return ret;
+    }
+
+    dlclose(handle);
+    return -ENOSYS;
+}
+
+int main(int argc, char **argv)
+{
+    struct bpf_object *obj = NULL;
+    struct bpf_program *prog = NULL;
+    int prog_fd = -1, map_fd = -1;
     int ifindex;
+    __u32 xdp_flags = 0; /* puedes cambiar a XDP_FLAGS_SKB_MODE, etc. */
 
     if (argc < 2) {
         fprintf(stderr, "Uso: %s <nombre_de_interfaz>\n", argv[0]);
@@ -96,19 +160,28 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    prog_fd = bpf_program__fd(bpf_object__find_program_by_name(obj, "ransomware_tree"));
+    prog = bpf_object__find_program_by_name(obj, "ransomware_tree");
+    if (!prog) {
+        fprintf(stderr, "Error: no se encontró el programa BPF 'ransomware_tree'\n");
+        return 1;
+    }
+
+    prog_fd = bpf_program__fd(prog);
     if (prog_fd < 0) {
         perror("Error al obtener FD del programa BPF");
         return 1;
     }
 
-    int err = xdp_set_link_fd_compat(ifindex, prog_fd, 0);
+    int err = xdp_attach_compat(ifindex, prog_fd, xdp_flags);
     if (err < 0) {
         if (err == -ENOSYS) {
             fprintf(stderr,
-                    "Error: no se pudo localizar en libbpf ninguna API XDP (bpf_set_link_xdp_fd / _opts).\n"
-                    "Solución recomendada: enlazar/instalar libbpf completa o usar libxdp (xdp-tools).\n");
+                    "Error: no se pudo localizar en libbpf ninguna API XDP "
+                    "(bpf_xdp_attach/detach ni bpf_set_link_xdp_fd/_opts).\n"
+                    "Solución recomendada: enlazar/instalar libbpf con soporte XDP o usar libxdp (xdp-tools).\n");
         } else {
+            /* muchas APIs devuelven -errno */
+            errno = -err;
             perror("Error al adjuntar el programa BPF a la interfaz");
         }
         return 1;
@@ -140,8 +213,10 @@ int main(int argc, char **argv) {
         sleep(1);
     }
 
-    /* Detach (fd = -1) */
-    (void)xdp_set_link_fd_compat(ifindex, -1, 0);
+    /* Detach */
+    (void)xdp_detach_compat(ifindex, xdp_flags);
 
+    /* Limpieza (opcional, pero recomendable) */
+    bpf_object__close(obj);
     return 0;
 }

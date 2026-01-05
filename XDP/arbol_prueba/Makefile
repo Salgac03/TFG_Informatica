@@ -2,11 +2,29 @@
 CLANG = clang
 CC = gcc
 CFLAGS = -O2
-BPF_FLAGS = -target bpf  # Opciones para compilar correctamente BPF
 
+# Detectar multiarch para includes
 MULTIARCH := $(shell gcc -print-multiarch)
 
-# Rutas de inclusión para el kernel
+# Detectar arquitectura para __TARGET_ARCH_*
+UNAME_M := $(shell uname -m)
+ifeq ($(UNAME_M),x86_64)
+	BPF_ARCH := x86
+else ifeq ($(UNAME_M),aarch64)
+	BPF_ARCH := arm64
+else ifeq ($(UNAME_M),armv7l)
+	BPF_ARCH := arm
+else ifeq ($(UNAME_M),ppc64le)
+	BPF_ARCH := powerpc
+else
+	# fallback (puedes ajustar si tu arch es otra)
+	BPF_ARCH := x86
+endif
+
+# Flags para compilar correctamente BPF (eBPF)
+BPF_FLAGS = -target bpf -D__TARGET_ARCH_$(BPF_ARCH)
+
+# Rutas de inclusión
 KERNEL_INCLUDES = -I/usr/include/$(MULTIARCH) -I/usr/include -I.
 
 # flags/libs correctos para libbpf
@@ -22,9 +40,9 @@ USR_BIN = xdp_usr
 # Regla por defecto: compilar ambos programas
 all: $(KERN_OBJ) $(USR_BIN)
 
-# Compilar el programa del kernel
+# Compilar el programa del kernel (eBPF)
 $(KERN_OBJ): $(KERN_SRC)
-	$(CLANG) $(BPF_FLAGS) $(KERNEL_INCLUDES) -g -O2 -mcpu=v1 -c $(KERN_SRC) -o $(KERN_OBJ)
+	$(CLANG) $(BPF_FLAGS) $(KERNEL_INCLUDES) -g -O2 -c $(KERN_SRC) -o $(KERN_OBJ)
 
 # Compilar el programa de espacio de usuario
 $(USR_BIN): $(USR_SRC)
