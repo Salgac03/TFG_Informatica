@@ -1,4 +1,3 @@
-\begin{comment}
 \section{Entorno de prueba Mininet}
 
 En el desarrollo de este trabajo, Mininet se ha considerado como uno de los entornos de prueba más relevantes. Su flexibilidad y facilidad de integración lo convierten en una herramienta adecuada para reproducir escenarios de red y evaluar el impacto del sistema de filtrado propuesto en condiciones controladas.
@@ -27,7 +26,9 @@ En los fragmentos de código \ref{redarbolrw} y \ref{redarbolrw1} se muestran ex
 
 \PythonCode[redarbolrw1]{Red Árbol Final}{Fragmento de códgio que define la topología de red usada en las pruebas finales.}{../Mininet/redarbolrw1.py}{8}{25}{8}
 
-\end{comment}
+
+\begin{comment}
+% AQUÍ EMPIEZA AWS
 
 \section{Entorno AWS}
 
@@ -51,6 +52,14 @@ La elección de la instancia encargada de simular el comportamiento de una Smart
 
 Atendiendo a estos criterios, se seleccionó la instancia c6gn.large\cite{aws-c6gn-large} para emular la SmartNIC. Este tipo de instancia se ejecuta sobre la arquitectura AWS Nitro v4\cite{aws-nitro}, la cual desplaza parte de las funciones del hipervisor a hardware dedicado, reduciendo significativamente la latencia y ofreciendo un entorno más adecuado para la ejecución de tecnologías de bajo nivel como XDP.
 
+La instancia EC2 empleada para emular el comportamiento de una SmartNIC dispone de dos interfaces de red conectadas mediante Ethernet, de forma análoga a la arquitectura presente en la mayoría de las SmartNIC comerciales. Para el diseño de esta emulación se tomó como referencia la familia de SmartNICs NVIDIA BlueField-2\cite{liu2021performancebluefield2}, ya que en una fase inicial del proyecto se contempló la posibilidad de utilizar una SmartNIC real de dicha familia ---concretamente la NVIDIA A30X Converged Accelerator---, opción que finalmente no pudo llevarse a cabo debido a una avería del hardware disponible.
+
+El modo de operación previsto para dicha SmartNIC era el denominado loopback\cite{cisco-smartnic-loopback}, en el cual el tráfico recibido por la primera interfaz de red es redirigido de forma obligatoria hacia la segunda interfaz, pasando previamente por la DPU. De este modo, los paquetes son procesados y devueltos al flujo de datos sin intervención de la CPU del host. Este esquema de funcionamiento es habitual en tareas de seguridad, como la implementación de firewalls o sistemas de inspección de tráfico, ya que permite ejecutar las funciones de filtrado de forma aislada y reducir la carga computacional del sistema anfitrión.
+
+La adopción de este modelo resulta especialmente adecuada para el presente trabajo, dado que el árbol de decisión implementado puede considerarse un subtipo de firewall especializado. Al ejecutar la lógica de clasificación directamente sobre la ruta de datos y fuera del host, se favorece un diseño más eficiente y alineado con los principios de procesamiento en línea que caracterizan a las SmartNIC modernas.
+
+% AQUÍ ACABA AWS
+\end{comment}
 
 \section{Herramientas}
 

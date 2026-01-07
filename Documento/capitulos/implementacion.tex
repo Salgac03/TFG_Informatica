@@ -1,6 +1,6 @@
 \section{Arquitectura de la propuesta}
 
-En esta sección se ofrece una visión global de la arquitectura propuesta, describiendo los componentes principales que la conforman y el flujo de información entre ellos. Para facilitar la comprensión, se ha elaborado el diagrama mostrado en la figura \ref{diagrama_arquitectura}, que servirá como referencia a lo largo de la explicación. Dicho diagrama proporciona una perspectiva general de la integración entre los distintos módulos, sin entrar todavía en los detalles específicos de implementación, los cuales se desarrollan en la sección siguiente.
+En esta sección se ofrece una visión global de la arquitectura propuesta, describiendo los componentes principales que la conforman y el flujo de información entre ellos. Para facilitar la comprensión, se ha elaborado el diagrama mostrado en la figura \ref{diagrama_arquitectura}, que servirá como referencia a lo largo de este capítulo. Dicho diagrama proporciona una perspectiva general de la integración entre los distintos módulos, sin entrar todavía en los detalles específicos de implementación, los cuales se desarrollan en la sección siguiente.
 
 La arquitectura de la implementación se organiza en tres bloques principales. El primero corresponde al tratamiento de los datos y el entrenamiento del árbol de decisión, mientras que el segundo se centra en la autogeneración del código XDP y el tercero en su posterior ejecución.
 
@@ -10,15 +10,13 @@ En la segunda fase, el mismo script aplica un conjunto de reglas de traducción 
 
 La tercera fase corresponde a la ejecución del sistema. En este punto, el proceso principal consiste en la utilización de un Makefile, encargado de automatizar la compilación y despliegue del entorno. Dicho Makefile genera, por un lado, el bytecode del programa XDP, y por otro, el ejecutable del programa en espacio de usuario. Este último tiene como funciones tanto la carga del bytecode en el kernel del sistema como la monitorización en tiempo real de los paquetes que son descartados o aceptados en función de las reglas definidas por el árbol de decisión.
 
-\begin{figure}[Arquitectura Implementación]{diagrama_arquitectura}{Diagrama con el flujo general de la implementación.}
+\begin{figure}[Arquitectura Implementación]{diagrama_arquitectura}{Arquitecturade generación de filtros eBPF}
 	\includegraphics[width=0.8\textwidth]{capturas/Arquitectura_implementacion.png}
 \end{figure}
 
-\section{Componentes}
-
 Los componentes de la arquitectura se organizan en tres módulos principales. El primero corresponde al tratamiento de datos y a su conversión desde paquetes de red a un fichero CSV. El segundo módulo está constituido por el árbol de decisión, entrenado mediante la biblioteca scikit-learn de Python. Finalmente, el tercer módulo corresponde al código XDP, el cual incluye una parte autogenerada a partir del árbol de decisión. Cabe destacar el fichero \verb|DecisionTree/arbolrw.py|, encargado tanto del entrenamiento del árbol de decisión como de la autogeneración del código C, apoyándose para ello en una plantilla Jinja.
 
-\subsection{Tratamiento de datos}
+\section{Tratamiento de datos}
 
 El conjunto de datos empleado para el entrenamiento del árbol de decisión se ha generado a partir de un fichero CSV de 294,6 MB elaborado por el autor. Para su creación, se utilizó la versión más reciente del script pcap2csv.py, el cual permite la unión de dos o más ficheros PCAP en un único fichero CSV, así como la diferenciación entre paquetes de tráfico malicioso y legítimo mediante el uso de las banderas -l y -m. El script almacena únicamente información de los paquetes hasta el nivel de aplicación, sin analizar el contenido de este nivel, debido a la complejidad que supone obtener dichos datos en C a nivel de kernel.
 
@@ -32,7 +30,7 @@ En el proceso de preparación del dataset, se eliminaron las direcciones IP, las
 
 \PythonCode[pcap2dict]{PCAP a Dict}{Fragmento de códgio que transforma parte de los datos de un paquete en un diccionario fácilmente convertible a CSV.}{../DecisionTree/pcap2csv.py}{39}{60}{39}
 
-\subsection{Árbol de decisión}
+\section{Árbol de decisión}
 
 En esta subsección se detalla el proceso de configuración y entrenamiento del árbol de decisión utilizado en el presente trabajo. Se explican los criterios adoptados para su construcción, las particularidades detectadas durante el desarrollo y las adaptaciones realizadas en función de los resultados obtenidos.
 
@@ -46,7 +44,7 @@ Posteriormente, se decidió eliminar la variable TTL al comprobar que resultaba 
 
 \PythonCode[entrenamientoArbol]{Entrenamiento Árbol}{Fragmento de códgio de arbolrw.py encargado de entrenar el árbol de decisión.}{../DecisionTree/arbolrw.py}{85}{114}{85}
 
-\subsection{Código XDP y Código autogenerado}
+\section{Código XDP y Código autogenerado}
 
 Tal y como se indicó en el apartado 2.2, los programas XDP constan de dos componentes diferenciados. El primero de ellos es un programa escrito en C que se compila de forma convencional y cuya ejecución tiene lugar íntegramente en el espacio de usuario. El segundo componente corresponde a un programa que se traduce a bytecode y que, posteriormente, es cargado por el primero en el espacio del kernel, donde finalmente se ejecuta.
 

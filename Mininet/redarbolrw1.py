@@ -4,6 +4,7 @@ from mininet.node import OVSSwitch
 from mininet.link import TCLink
 from mininet.cli import CLI
 from mininet.log import setLogLevel
+import time
 
 class SimpleTopo(Topo):
     def build(self):
@@ -41,8 +42,18 @@ def run():
     print("Ping test from hsrc to hdst:")
     print(net['hsrc'].cmd('ping -c 3 10.0.1.2'))
 
-    CLI(net)
-    net.stop()
+    try:
+        CLI(net)
+        # Al salir del CLI, NO paramos la red: la dejamos viva para mnexec
+        print("\n[INFO] Has salido del Mininet CLI. La red sigue activa.")
+        print("[INFO] Ejecuta tus pruebas desde otra terminal con mnexec.")
+        print("[INFO] Pulsa Ctrl+C en ESTA terminal para parar la red y limpiar.\n")
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n[INFO] Ctrl+C recibido. Parando Mininet...")
+    finally:
+        net.stop()
 
 if __name__ == '__main__':
     setLogLevel('info')
