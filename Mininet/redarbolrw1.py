@@ -4,7 +4,9 @@ from mininet.node import OVSSwitch
 from mininet.link import TCLink
 from mininet.cli import CLI
 from mininet.log import setLogLevel
+import os
 import time
+
 
 class SimpleTopo(Topo):
     def build(self):
@@ -13,6 +15,7 @@ class SimpleTopo(Topo):
             ip='10.0.1.1/24',
             mac='00:00:00:00:01:01'
         )
+
         hdst = self.addHost(
             'hdst',
             ip='10.0.1.2/24',
@@ -23,6 +26,7 @@ class SimpleTopo(Topo):
 
         self.addLink(hsrc, s1)
         self.addLink(hdst, s1)
+
 
 def run():
     topo = SimpleTopo()
@@ -37,23 +41,28 @@ def run():
 
     net.start()
 
+    # Montar BPF filesystem en el host destino
     net['hdst'].cmd('mount -t bpf bpf /sys/fs/bpf')
 
     print("Ping test from hsrc to hdst:")
     print(net['hsrc'].cmd('ping -c 3 10.0.1.2'))
 
+    HEADLESS = os.environ.get("MN_HEADLESS", "0") == "1"
+
     try:
-        CLI(net)
-        # Al salir del CLI, NO paramos la red: la dejamos viva para mnexec
-        print("\n[INFO] Has salido del Mininet CLI. La red sigue activa.")
-        print("[INFO] Ejecuta tus pruebas desde otra terminal con mnexec.")
-        print("[INFO] Pulsa Ctrl+C en ESTA terminal para parar la red y limpiar.\n")
-        while True:
-            time.sleep(1)
+        if not HEADLESS:
+            CLI(net)
+        else:
+            print("[INFO] MN_HEADLESS=1 -> sin CLI. Manteniendo la red viva.")
+            while True:
+                time.sleep(1)
+
     except KeyboardInterrupt:
         print("\n[INFO] Ctrl+C recibido. Parando Mininet...")
+
     finally:
         net.stop()
+
 
 if __name__ == '__main__':
     setLogLevel('info')
