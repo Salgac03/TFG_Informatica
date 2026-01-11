@@ -102,7 +102,7 @@ static __always_inline __u16 get_ip_frag_offset(void *data, void *data_end)
 }
 
 // ---------- Programa principal ----------
-SEC("xdp_prog/ransomware_tree")
+SEC("xdp")
 int ransomware_tree(struct xdp_md *ctx)
 {
     void *data_end = (void *)(long)ctx->data_end;

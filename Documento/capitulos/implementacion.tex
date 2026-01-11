@@ -20,15 +20,13 @@ Los componentes de la arquitectura se organizan en tres módulos principales. El
 
 El conjunto de datos empleado para el entrenamiento del árbol de decisión se ha generado a partir de un fichero CSV de 294,6 MB elaborado por el autor. Para su creación, se utilizó la versión más reciente del script pcap2csv.py, el cual permite la unión de dos o más ficheros PCAP en un único fichero CSV, así como la diferenciación entre paquetes de tráfico malicioso y legítimo mediante el uso de las banderas -l y -m. El script almacena únicamente información de los paquetes hasta el nivel de aplicación, sin analizar el contenido de este nivel, debido a la complejidad que supone obtener dichos datos en C a nivel de kernel.
 
-El proceso de conversión comienza definiendo un diccionario con todas las posibles características que puede tener un paquete de red. A continuación, se leen los paquetes uno a uno y cada uno se procesa mediante una función que devuelve un diccionario en el que cada clave corresponde al nombre de una columna y cada valor al dato asociado a ese paquete en particular (véase un fragmento de esta función en \ref{pcap2dict}). En caso de que un paquete carezca de alguno de los campos —por ejemplo, los relativos a IP—, dichos valores se registran como None en lugar de omitirse, con el fin de mantener un formato uniforme en el CSV y evitar errores durante el procesamiento posterior.
+El proceso de conversión comienza definiendo un diccionario con todas las posibles características que puede tener un paquete de red. A continuación, se leen los paquetes uno a uno y cada uno se procesa mediante una función que devuelve un diccionario en el que cada clave corresponde al nombre de una columna y cada valor al dato asociado a ese paquete en particular. En caso de que un paquete carezca de alguno de los campos —por ejemplo, los relativos a IP—, dichos valores se registran como None en lugar de omitirse, con el fin de mantener un formato uniforme en el CSV y evitar errores durante el procesamiento posterior.
 
 Una vez transformado el paquete en diccionario, se añade al final la etiqueta ``Yes'' si corresponde a una muestra de ransomware, o ``No'' en caso contrario. Posteriormente, el diccionario se incorpora a un array. Cuando dicho array alcanza los 1024 elementos, su contenido se vuelca al fichero CSV y se vacía para liberar memoria. Este procedimiento se repite hasta procesar todos los paquetes, momento en el que se realiza un último volcado con los datos restantes. Se ha optado por este método de lectura y escritura para optimizar tanto el uso de memoria como la frecuencia de accesos de escritura al disco.
 
 Los ficheros PCAP correspondientes al tráfico de ransomware fueron obtenidos, tal y como se explica en el apartado 2.1 por el trabajo de Eduardo Berrueta et al. entre los años 2015 y 2022\cite{qnyn-q136-20}. Por otro lado, el fichero PCAP con tráfico legítimo fue generado por el autor mediante la captura de tráfico durante una jornada laboral en un laboratorio universitario, registrando el uso normal de los dispositivos y recogiendo tráfico de protocolos como HTTP, HTTPS, DNS, SSH, entre otros. Con el objetivo de incrementar la precisión del árbol de decisión, se generó adicionalmente tráfico SMB2 mediante la copia de un fichero de gran tamaño a una unidad de almacenamiento ubicada en el CPD de la universidad.
 
 En el proceso de preparación del dataset, se eliminaron las direcciones IP, las direcciones MAC y el timestamp de los paquetes, debido al número limitado presente tanto en las capturas de tráfico malicioso como en las de tráfico legítimo. Con ello, se evitó que el árbol de decisión se apoyara en características poco representativas o irrelevantes para un entorno real. 
-
-\PythonCode[pcap2dict]{PCAP a Dict}{Fragmento de códgio que transforma parte de los datos de un paquete en un diccionario fácilmente convertible a CSV.}{../DecisionTree/pcap2csv.py}{39}{60}{39}
 
 \section{Árbol de decisión}
 
@@ -42,7 +40,7 @@ Durante el desarrollo se identificó un error en la configuración del entrenami
 
 Posteriormente, se decidió eliminar la variable TTL al comprobar que resultaba tan poco fiable como las direcciones IP, introduciendo un nivel elevado de variabilidad. Tras esta modificación, el árbol resultante mostró una mayor amplitud, alcanzando ahora los cuatro niveles de profundidad. Aunque estas observaciones pudieran parecer superficiales, resultan de especial relevancia, ya que tanto el desarrollo del código como la generación automática de este se fundamentan en los árboles de decisión obtenidos, y en la evolución observada de uno respecto al otro.
 
-\PythonCode[entrenamientoArbol]{Entrenamiento Árbol}{Fragmento de códgio de arbolrw.py encargado de entrenar el árbol de decisión.}{../DecisionTree/arbolrw.py}{85}{114}{85}
+\PythonCode[entrenamientoArbol]{Entrenamiento Árbol}{Fragmento de códgio de arbolrw.py encargado de entrenar el árbol de decisión.}{../DecisionTree/arbolrw.py}{103}{114}{114}
 
 \section{Código XDP y Código autogenerado}
 
@@ -71,7 +69,7 @@ La adaptación de estas condiciones al lenguaje C requiere una transformación a
 La eliminación del campo \verb|TTL|, junto con la generación del nuevo árbol de decisión que se muestra en la figura \ref{arbol-decision}, introdujo únicamente una regla adicional de traducción del estilo \verb|<= inf|. En este caso, la condición añadida corresponde a \verb|ip_tot_len <= inf|. Esta traducción, al igual que las anteriores, puede observarse en el fragmento de código \ref{traduccionArbol}, donde se recogen de forma conjunta las normas aplicadas para transformar las condiciones producidas por el modelo en expresiones válidas en C restringido.
 
 \begin{figure}[Árbol de Decisión]{arbol-decision}{Árbol de decisión usado para las pruebas de rendimiento.}
-	\includegraphics[width=1\textwidth]{capturas/arbolrw2.png}
+	\includegraphics[width=1.15\textwidth]{capturas/arbolrw2.png}
 \end{figure}
 
 \PythonCode[traduccionArbol]{Traducción Árbol}{Fragmento de códgio de arbolrw.py encargado de traducir el árbol de decisión a C.}{../DecisionTree/arbolrw.py}{19}{55}{19}
@@ -87,3 +85,15 @@ El núcleo del programa lo constituye la función principal \verb|ransomware_tre
 En conjunto, esta plantilla actúa como un esqueleto flexible que proporciona toda la estructura necesaria para el filtrado de tráfico en el kernel, a la vez que facilita la integración dinámica del árbol de decisión mediante Jinja. Su diseño modular permite mantener un programa ligero, eficiente y adaptable a distintos escenarios de clasificación de tráfico malicioso. La función principal puede verse en el fragmento de código \ref{xdp_kern_jinja}.
 
 \CCode[xdp_kern_jinja]{Plantilla Jinja XDP espacio de Kernel}{Fragmento de códgio que muestra la función principal XDP en la plantilla Jinja}{../DecisionTree/xdp_kern.j2}{104}{145}{104}
+
+\section{Compilarción y Despliegue}
+
+En la presente sección se describen las herramientas y la preparación del entorno necesarias para la ejecución de Mininet, el entrenamiento del árbol de decisión y la implementación del filtro XDP. Para los entornos de ejecución en Python se ha utilizado la versión \verb|3.10.12|, junto con un entorno virtual creado mediante el comando \verb|python3 -m venv|, en el cual se han instalado, a través del gestor de paquetes \textit{pip}, todas las dependencias requeridas para el desarrollo del proyecto.
+
+La lista completa de paquetes utilizados puede consultarse en el fichero \verb|requirements.txt| incluido en el repositorio de código. Entre las dependencias más relevantes se encuentran \textit{mininet}, \textit{jinja2} y \textit{scikit-learn}, empleadas respectivamente para el manejo de la API de Mininet y la definición de topologías de red, el rellenado de la plantilla Jinja utilizada para la autogeneración del código XDP, y el entrenamiento del árbol de decisión. Adicionalmente, para poder ejecutar Mininet es necesario disponer previamente del comando \textit{mn} instalado en el sistema, ya que este proporciona las utilidades básicas para la creación y gestión de las topologías de red.
+
+Si bien tanto Mininet como el árbol de decisión resultaron relativamente sencillos de trasladar a otros entornos de ejecución, no ocurrió lo mismo con XDP. Esto se debe a que XDP depende de manera directa de múltiples configuraciones del sistema operativo, así como de las versiones concretas de diversas librerías del sistema y de librerías auxiliares empleadas de forma indirecta por estas. En determinados sistemas operativos, algunas de dichas dependencias se encontraban obsoletas o marcadas como deprecated, lo que complicó la portabilidad y la reproducibilidad del entorno de ejecución, especialmente al migrar entre distribuciones o versiones de kernel distintas.
+
+Para mitigar estas complicaciones, se optó por desarrollar un Makefile dinámico, el cual puede consultarse en el fichero \verb|XDP/arbol_prueba| del repositorio. Este Makefile comienza comprobando la arquitectura del sistema mediante el comando \verb|$(shell uname -m)|, lo que permite asignar posteriormente, a través de estructuras condicionales, el valor adecuado a la variable \verb|BPF_ARCH|. Dicha variable se emplea más adelante para definir correctamente las flags de compilación específicas de la arquitectura.
+
+Antes de iniciar el proceso de compilación propiamente dicho, el Makefile genera de forma dinámica las variables \textit{CFLAGS} y \textit{LIBS}. Para ello, se utilizan los comandos \verb|$(shell pkg-config --cflags| \verb|libbpf 2>/dev/null)| y \verb|$(shell pkg-config --libs libbpf 2>/dev/null) -ldl|, respectivamente. Este enfoque resulta especialmente relevante, ya que el código ha sido adaptado para ser compatible con distintas versiones de \verb|libbpf|, la librería encargada de proporcionar la API de eBPF/XDP, facilitando así la portabilidad y la correcta compilación en entornos heterogéneos.

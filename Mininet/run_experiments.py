@@ -91,29 +91,28 @@ def tcpreplay_test(net, repo_root, pcap, duration, ctrl_port, prefix, reps, resu
     print(f"[OK] TCPReplay: CSVs y logs en {results_dir}")
 
 
+
 def iperf_test(net, results_dir, duration, parallel, reverse, udp, bitrate):
     """
-    iperf3: servidor en hdst, cliente en hsrc. Guarda logs.
-    - UDP opcional con --udp y --bitrate
-    - reverse opcional (--reverse)
-    - parallel opcional (-P)
+    iperf3 con salida JSON + CSV.
     """
     hsrc, hdst = net["hsrc"], net["hdst"]
     ensure_dir(hdst, results_dir)
     ensure_dir(hsrc, results_dir)
 
-    srv_log = os.path.join(results_dir, f"iperf3_server_{now_tag()}.log")
+    tag = now_tag()
+    srv_log = os.path.join(results_dir, f"iperf3_server_{tag}.log")
     srv_pid = os.path.join(results_dir, "iperf3_server.pid")
-    cli_log = os.path.join(results_dir, f"iperf3_client_{now_tag()}.log")
 
-    # Arranca servidor
+    json_out = os.path.join(results_dir, f"iperf3_client_{tag}.json")
+    csv_out = os.path.join(results_dir, f"iperf3_client_{tag}.csv")
+
+    # Servidor
     start_bg(hdst, "iperf3 -s", srv_pid, srv_log)
     time.sleep(0.5)
 
     # Cliente
-    args = []
-    args += ["-c", "10.0.1.2"]
-    args += ["-t", str(duration)]
+    args = ["-c", "10.0.1.2", "-t", str(duration), "-J"]
     if parallel and parallel > 1:
         args += ["-P", str(parallel)]
     if reverse:
@@ -123,14 +122,40 @@ def iperf_test(net, results_dir, duration, parallel, reverse, udp, bitrate):
         if bitrate:
             args += ["-b", str(bitrate)]
 
-    cmd_cli = "iperf3 " + " ".join(shlex.quote(a) for a in args)
-    run_cmd(hsrc, cmd_cli, cli_log)
+    cmd = "iperf3 " + " ".join(shlex.quote(a) for a in args)
+    run_cmd(hsrc, cmd, json_out)
 
-    # Para servidor
     stop_bg(hdst, srv_pid)
 
-    print(f"[OK] iPerf3: logs en {results_dir} (client/server).")
+    # JSON → CSV (inline, sin script externo)
+    # JSON → CSV (inline, sin script externo)
+    hsrc.cmd(
+        """python3 - << 'EOF'
+import json, csv
 
+json_out = "{json_out}"
+csv_out = "{csv_out}"
+
+with open(json_out) as jf:
+    data = json.load(jf)
+
+with open(csv_out, "w", newline="") as cf:
+    w = csv.writer(cf)
+    w.writerow(["start","end","bits_per_second","bytes","retransmits","lost_percent"])
+
+    for it in data.get("intervals", []):
+        s = it.get("sum", {{}}) or it.get("sum_received", {{}})
+        w.writerow([
+            it.get("start",""),
+            it.get("end",""),
+            s.get("bits_per_second",""),
+            s.get("bytes",""),
+            s.get("retransmits",""),
+            s.get("lost_percent",""),
+        ])
+EOF""".format(json_out=json_out, csv_out=csv_out)
+    )
+    print(f"[OK] iPerf3 CSV generado en {csv_out}")
 
 def custom_test(net, repo_root, script_path, args, results_dir):
     """
