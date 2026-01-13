@@ -1,0 +1,2 @@
+sudo python3 run_experiments.py --repo-root /home/salgac/Escritorio/Carrera/Cuarto/TFG/TFG_Informatica -m ../../Hive_06082021.pcap -l ../../Legitimo.pcap
+

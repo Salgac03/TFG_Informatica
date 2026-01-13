@@ -1,139 +1,117 @@
-from scapy.all import PcapReader, sendp, Ether
-import argparse
-import time
-import random
-import csv
-from typing import List, Iterator
+#!/usr/bin/env python3
+import argparse, os, random, sys, time
+from typing import Iterator, List, Optional, Tuple
+from scapy.all import PcapReader, Ether, conf, get_if_hwaddr, getmacbyip
 
-def send_packets(packets, src_mac, dst_mac, iface):
-    """
-    Procesa y envía una lista de paquetes:
-      - Añade o actualiza la capa Ethernet con las MAC proporcionadas.
-    """
-    sent_count = 0
-    for packet in packets:
-        try:
-            # Si el paquete no tiene capa Ethernet, la añadimos.
-            if not packet.haslayer(Ether):
-                packet = Ether(src=src_mac, dst=dst_mac) / packet
-            else:
-                # Actualizamos las direcciones MAC de origen y destino
-                packet[Ether].src = src_mac
-                packet[Ether].dst = dst_mac
-            
-            # Enviar el paquete a nivel 2
-            sendp(packet, iface=iface, verbose=False)
-            sent_count += 1
-        except Exception as e:
-            print(f"Error al enviar el paquete: {e}")
-    return sent_count
+def pick_iface() -> str:
+    for n in sorted(os.listdir("/sys/class/net")):
+        if n != "lo" and not n.startswith(("ovs","docker","br-","virbr","veth")):
+            return n
+    raise SystemExit("No pude autodetectar interfaz. Usa --iface.")
 
-def packet_generator(filenames: List[str]) -> Iterator:
-    """
-    Generador que lee paquetes desde archivos .pcap sin cargarlos todos en memoria.
-    """
-    for filename in filenames:
-        try:
-            with PcapReader(filename) as packets:
-                for packet in packets:
-                    yield packet
-        except Exception as e:
-            print(f"Error al abrir o leer el archivo pcap {filename}: {e}")
+def resolve_macs(iface: str, src: Optional[str], dst: Optional[str], dst_ip: Optional[str]) -> Tuple[str,str]:
+    src = src or get_if_hwaddr(iface)
+    if not dst:
+        if not dst_ip: raise SystemExit("Falta destino: usa --dst-mac o --dst-ip.")
+        dst = getmacbyip(dst_ip)
+        if not dst: raise SystemExit(f"No pude resolver MAC para {dst_ip}. (haz ping/ARP primero)")
+    return src, dst
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Script para enviar paquetes desde un host a otro usando archivos pcap. " +
-                    "Se configuran las direcciones MAC en la capa Ethernet."
-    )
-    parser.add_argument('-m', '--mfiles', nargs='+', help='Lista de archivos pcap (-m)', required=True)
-    parser.add_argument('-l', '--lfiles', nargs='+', help='Lista de archivos pcap (-l)', required=True)
-    parser.add_argument('--src_mac', type=str, help='Dirección MAC de origen', required=True)
-    parser.add_argument('--dst_mac', type=str, help='Dirección MAC de destino', required=True)
-    parser.add_argument('--iface', type=str, help='Interfaz de red para enviar los paquetes', required=True)
-    parser.add_argument('--rate', type=int, default=100, help='Tasa de envío en paquetes por segundo (pps)')
-    parser.add_argument('--duration', type=int, default=10, help='Duración de la transmisión en segundos')
-    parser.add_argument('--log', type=str, help='Archivo CSV para registrar los envíos', default=None)
-    args = parser.parse_args()
+def stream_pcaps(files: List[str]) -> Iterator:
+    while True:  # siempre en bucle: si se acaba, reabre
+        for fn in files:
+            try:
+                with PcapReader(fn) as pr:
+                    for pkt in pr:
+                        yield pkt
+            except Exception as e:
+                print(f"[WARN] {fn}: {e}", file=sys.stderr)
+        if not files:
+            return
 
-    src_mac = args.src_mac
-    dst_mac = args.dst_mac
-    iface = args.iface
-    rate = args.rate
-    duration = args.duration
-
-    mfiles_generator = packet_generator(args.mfiles)
-    lfiles_generator = packet_generator(args.lfiles)
-
-    count_mfiles = 0
-    count_lfiles = 0
-    pid = 0
-
-    # Configurar log si se pide
-    logfile = None
-    writer = None
-    if args.log:
-        logfile = open(args.log, 'w', newline='')
-        writer = csv.writer(logfile)
-        writer.writerow(["id", "timestamp_ms", "label"])
-
-    start_time = time.time()
-    next_time = start_time
-    
-    # ------------------------------------------------------------------
-    # CAMBIO CRUCIAL: Ajustar el intervalo por el tamaño del lote (4 paquetes)
-    # interval ahora representa el tiempo que debe pasar entre cada lote de 4,
-    # para que la tasa total sea igual a 'rate'.
-    # ------------------------------------------------------------------
-    LOTE_SIZE = 4
-    if rate > 0:
-        interval = LOTE_SIZE / rate
+def to_raw(pkt, eth: Ether) -> bytes:
+    p = pkt.copy()
+    if p.haslayer(Ether):
+        p[Ether].src, p[Ether].dst = eth.src, eth.dst
     else:
-        interval = 0 # Evitar división por cero
+        p = eth / p
+    return bytes(p)
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        description="Generador L2 sencillo por rachas (bursts): alterna tráfico LEGIT/MAL al azar cada N ms."
+    )
+    ap.add_argument("--legit", nargs="+", required=True, help="PCAP(s) de tráfico legítimo")
+    ap.add_argument("--mal",   nargs="+", required=True, help="PCAP(s) de tráfico malicioso/malware")
+
+    ap.add_argument("--duration", type=float, default=10.0, help="segundos totales")
+    ap.add_argument("--burst-ms", type=int, default=200, help="duración de cada racha en ms")
+    ap.add_argument("--p-mal", type=float, default=0.5, help="probabilidad de que una racha sea MAL (0..1)")
+
+    ap.add_argument("--rate", type=int, default=0, help="pps objetivo (0=sin limitación)")
+    ap.add_argument("--batch", type=int, default=64, help="paquetes por batch (mejor rendimiento)")
+
+    ap.add_argument("--iface", default=None, help="interfaz de salida (si no, autodetecta)")
+    ap.add_argument("--src-mac", default=None)
+    ap.add_argument("--dst-mac", default=None)
+    ap.add_argument("--dst-ip",  default=None)
+
+    ap.add_argument("--seed", type=int, default=None, help="semilla RNG (reproducible)")
+    a = ap.parse_args()
+
+    if a.seed is not None: random.seed(a.seed)
+    if not (0.0 <= a.p_mal <= 1.0): raise SystemExit("--p-mal debe estar entre 0 y 1")
+    if a.burst_ms <= 0: raise SystemExit("--burst-ms debe ser > 0")
+
+    iface = a.iface or pick_iface()
+    src, dst = resolve_macs(iface, a.src_mac, a.dst_mac, a.dst_ip)
+    eth = Ether(src=src, dst=dst)
+
+    gen_legit = stream_pcaps(a.legit)
+    gen_mal   = stream_pcaps(a.mal)
+
+    sock = conf.L2socket(iface=iface)
+    batch = max(1, a.batch)
+    rate = max(0, a.rate)
+    interval = (batch / rate) if rate else 0.0
+
+    sent_legit = sent_mal = bursts_legit = bursts_mal = 0
+    t0 = time.perf_counter()
+    next_t = t0
 
     try:
-        while time.time() - start_time < duration:
-            random_number = random.randint(0, 100)
-            label = "l" if random_number % 2 == 0 else "m"
+        while (time.perf_counter() - t0) < a.duration:
+            is_mal = (random.random() < a.p_mal)
+            gen = gen_mal if is_mal else gen_legit
+            if is_mal: bursts_mal += 1
+            else:      bursts_legit += 1
 
-            packets_to_send = []
-            for _ in range(LOTE_SIZE): # enviar 4 paquetes por iteración
-                try:
-                    if label == "l":
-                        packet = next(lfiles_generator)
-                        count_lfiles += 1
-                    else:
-                        packet = next(mfiles_generator)
-                        count_mfiles += 1
-                    packets_to_send.append(packet)
-                except StopIteration:
-                    print(f"Se agotaron los paquetes de los archivos -{label}.")
-                    break
+            burst_end = time.perf_counter() + (a.burst_ms / 1000.0)
 
-            if packets_to_send:
-                send_packets(packets_to_send, src_mac, dst_mac, iface)
+            while time.perf_counter() < burst_end and (time.perf_counter() - t0) < a.duration:
+                raws = [to_raw(next(gen), eth) for _ in range(batch)]
+                for r in raws: sock.send(r)
 
-                if writer:
-                    ts_ms = int(time.time() * 1000)
-                    for _ in packets_to_send:
-                        writer.writerow([pid, ts_ms, label])
-                        pid += 1
+                if is_mal: sent_mal += batch
+                else:      sent_legit += batch
 
-            # Control de tasa: espera hasta el siguiente instante (usando el intervalo corregido)
-            next_time += interval
-            sleep_time = next_time - time.time()
-            if sleep_time > 0:
-                time.sleep(sleep_time)
-            else:
-                next_time = time.time()
+                if interval:
+                    next_t += interval
+                    s = next_t - time.perf_counter()
+                    if s > 0: time.sleep(s)
+                    else: next_t = time.perf_counter()
+
     except KeyboardInterrupt:
-        print("\nScript interrumpido manualmente.")
+        print("[INFO] Interrumpido.", file=sys.stderr)
     finally:
-        if logfile:
-            logfile.close()
+        try: sock.close()
+        except Exception: pass
 
-    print("\nResumen:")
-    print(f"Paquetes enviados desde archivos -m: {count_mfiles}")
-    print(f"Paquetes enviados desde archivos -l: {count_lfiles}")
+    dt = time.perf_counter() - t0
+    total = sent_legit + sent_mal
+    pps = (total / dt) if dt else 0.0
+    print(f"[OK] iface={iface} total={total} pps≈{pps:.1f} legit={sent_legit} mal={sent_mal} bursts(L/M)={bursts_legit}/{bursts_mal} elapsed={dt:.3f}s")
+    return 0
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    raise SystemExit(main())

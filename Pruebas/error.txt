@@ -1,3 +1,0 @@
-tcprewrite: tcpedit.c:456: tcpedit_geterr: Assertion `tcpedit' failed.
-./tcpreplay_test.sh: línea 32: 75972 Abortado                (`core' generado) tcprewrite --enet-smac="$MAC_ORIGEN" --enet-dmac="$MAC_DESTINO" --dstipmap=0.0.0.0/"$IP_DESTINO" --infile="$ARCHIVO_ORIGINAL" --outfile="$ARCHIVO_FINAL_PRUEBA"
-ERROR: Falló la reescritura con tcprewrite.
