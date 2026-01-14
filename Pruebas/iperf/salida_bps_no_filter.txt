@@ -1,4 +1,0 @@
-BPS_Media Tiempo_Media Perdida_Media_% Bandwidth_Setting
-84.00 14.58 100.00 100M
-522.80 11.51 100.00 500M
-1.07 12.60 100.00 1G

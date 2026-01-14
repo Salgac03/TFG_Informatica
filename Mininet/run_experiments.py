@@ -3,7 +3,6 @@ import argparse
 import csv
 import json
 import os
-import re
 import shlex
 import time
 from datetime import datetime
@@ -46,13 +45,19 @@ SLEEP_BETWEEN_EXPERIMENTS = 10.0   # entre iperf/tcpreplay/generador
 XDP_USR_REL_PATH = "XDP/arbol_prueba/xdp_usr"
 XDP_INTERFACE = "hdst-eth0"
 
-# Interfaces fijas en Mininet (no parametrizables)
-TX_IFACE = "hsrc-eth0"
-RX_IFACE = "hdst-eth0"
 HDST_IP = "10.0.1.2"
 
+# Preferencias de interfaces (pero auto-detectamos si no existen en el namespace)
+PREFERRED_TX_IFACE = "hsrc-eth0"
+PREFERRED_RX_IFACE = "hdst-eth0"
+
+# MACs fijas en SimpleTopo() (las que ya usas en CLI)
+SRC_MAC = "00:00:00:00:01:01"
+DST_MAC = "00:00:00:00:02:02"
+
 # Ruta al script del generador (relativa al repo-root)
-GEN_SCRIPT_REL_PATH = "trafico_eth.py"
+# En tu traceback estaba en .../TFG_Informatica/Mininet/trafico_eth.py
+GEN_SCRIPT_REL_PATH = "Mininet/trafico_eth.py"
 
 
 # ======================================================
@@ -83,7 +88,7 @@ def stop_bg(host, pidfile):
 
 
 def ping_sanity(net):
-    # Importante: esto rellena ARP y ayuda al generador a resolver MAC por dst-ip
+    # rellena ARP (útil también para tcpdump/otros)
     print(net["hsrc"].cmd(f"ping -c 1 {HDST_IP}"))
 
 
@@ -93,6 +98,25 @@ def pps_to_bitrate_bps(pps, payload_bytes):
 
 def abspath(repo_root: str, path: str) -> str:
     return path if os.path.isabs(path) else os.path.join(repo_root, path)
+
+
+def list_ifaces(host) -> list[str]:
+    out = host.cmd("ip -o link show | awk -F': ' '{print $2}'")
+    return [x.strip() for x in out.splitlines() if x.strip()]
+
+
+def pick_iface(host, preferred: str) -> str:
+    # En Mininet, a veces dentro del namespace la iface se llama eth0.
+    # Preferimos hsrc-eth0/hdst-eth0, pero si no existe usamos eth0 o la primera no-lo.
+    ifaces = list_ifaces(host)
+    if preferred in ifaces:
+        return preferred
+    if "eth0" in ifaces:
+        return "eth0"
+    for i in ifaces:
+        if i != "lo":
+            return i
+    return preferred  # último recurso
 
 
 def count_pcap_packets(host, pcap_path: str) -> int:
@@ -258,6 +282,11 @@ def tcpreplay_sweep(net, results_dir: str, repo_root: str, pcap_path: str, label
 
     pcap_in = abspath(repo_root, pcap_path)
 
+    tx_iface = pick_iface(hsrc, PREFERRED_TX_IFACE)
+    rx_iface = pick_iface(hdst, PREFERRED_RX_IFACE)
+
+    print(f"[INFO] TCPREPLAY({label}) usando ifaces: TX={tx_iface}  RX={rx_iface}")
+
     def run_block(xdp_label: str):
         for pps in PPS_STEPS:
             print(f"[INFO] TCPREPLAY({label}) | XDP={xdp_label} | Ejecutando PPS objetivo = {pps}")
@@ -271,7 +300,7 @@ def tcpreplay_sweep(net, results_dir: str, repo_root: str, pcap_path: str, label
 
             start_bg(
                 hdst,
-                f"timeout {TCPREPLAY_DURATION} tcpdump -i {shlex.quote(RX_IFACE)} -n -U -s 0 -w {shlex.quote(pcap_out)}",
+                f"timeout {TCPREPLAY_DURATION} tcpdump -i {shlex.quote(rx_iface)} -n -U -s 0 -w {shlex.quote(pcap_out)}",
                 tcpdump_pid,
                 tcpdump_log,
             )
@@ -279,7 +308,7 @@ def tcpreplay_sweep(net, results_dir: str, repo_root: str, pcap_path: str, label
 
             run_cmd(
                 hsrc,
-                f"tcpreplay --intf1={shlex.quote(TX_IFACE)} --pps={int(pps)} {shlex.quote(pcap_in)} > {shlex.quote(tcpreplay_log)} 2>&1"
+                f"tcpreplay --intf1={shlex.quote(tx_iface)} --pps={int(pps)} {shlex.quote(pcap_in)} > {shlex.quote(tcpreplay_log)} 2>&1"
             )
             time.sleep(0.5)
 
@@ -340,22 +369,6 @@ def tcpreplay_sweep(net, results_dir: str, repo_root: str, pcap_path: str, label
 # TU SCRIPT (trafico_eth.py) — OFF/ON, y CSV global
 # ======================================================
 
-GEN_OUT_RE = re.compile(
-    r"total=(?P<total>\d+)\s+pps≈(?P<pps>[0-9.]+)\s+legit=(?P<legit>\d+)\s+mal=(?P<mal>\d+).*elapsed=(?P<elapsed>[0-9.]+)s"
-)
-
-def parse_gen_stdout(out: str):
-    m = GEN_OUT_RE.search(out)
-    if not m:
-        return {"tx_total": 0, "tx_legit": 0, "tx_mal": 0, "elapsed": float(GEN_DURATION)}
-    return {
-        "tx_total": int(m.group("total")),
-        "tx_legit": int(m.group("legit")),
-        "tx_mal": int(m.group("mal")),
-        "elapsed": float(m.group("elapsed")),
-    }
-
-
 def trafico_eth_sweep(net, results_dir: str, repo_root: str, pcap_legit: str, pcap_malign: str):
     hsrc, hdst = net["hsrc"], net["hdst"]
     ensure_dir(hdst, results_dir)
@@ -378,29 +391,33 @@ def trafico_eth_sweep(net, results_dir: str, repo_root: str, pcap_legit: str, pc
         "lost_percent",
         "lost_packets",
         "packets_total",
-        "tx_packets_total",
-        "tx_legit_packets",
-        "tx_mal_packets",
+        "tx_packets_target",
     ]
 
     gen_script = abspath(repo_root, GEN_SCRIPT_REL_PATH)
     legit_abs = abspath(repo_root, pcap_legit)
     mal_abs = abspath(repo_root, pcap_malign)
 
+    tx_iface = pick_iface(hsrc, PREFERRED_TX_IFACE)
+    rx_iface = pick_iface(hdst, PREFERRED_RX_IFACE)
+
+    print(f"[INFO] TRAFICO_ETH usando ifaces: TX={tx_iface}  RX={rx_iface}")
+    print(f"[INFO] TRAFICO_ETH usando script: {gen_script}")
+
     def run_block(xdp_label: str):
         for pps in PPS_STEPS:
-            label = "trafico_eth"
             print(f"[INFO] TRAFICO_ETH | XDP={xdp_label} | Ejecutando PPS objetivo = {pps}")
 
             tag = f"{xdp_label}_pps{pps}_{now_tag()}"
             pcap_out = os.path.join(pcaps_dir, f"rx_{tag}.pcap")
+
             tcpdump_log = os.path.join(logs_dir, f"tcpdump_{tag}.log")
             tcpdump_pid = os.path.join(logs_dir, f"tcpdump_{tag}.pid")
             gen_log = os.path.join(logs_dir, f"gen_{tag}.log")
 
             start_bg(
                 hdst,
-                f"timeout {GEN_DURATION} tcpdump -i {shlex.quote(RX_IFACE)} -n -U -s 0 -w {shlex.quote(pcap_out)}",
+                f"timeout {GEN_DURATION} tcpdump -i {shlex.quote(rx_iface)} -n -U -s 0 -w {shlex.quote(pcap_out)}",
                 tcpdump_pid,
                 tcpdump_log,
             )
@@ -415,39 +432,36 @@ def trafico_eth_sweep(net, results_dir: str, repo_root: str, pcap_legit: str, pc
                 f"--p-mal {GEN_P_MAL} "
                 f"--rate {int(pps)} "
                 f"--batch {GEN_BATCH} "
-                f"--iface {shlex.quote(TX_IFACE)} "
+                f"--iface {shlex.quote(tx_iface)} "
+                f"--src-mac {shlex.quote(SRC_MAC)} "
+                f"--dst-mac {shlex.quote(DST_MAC)} "
                 f"--dst-ip {shlex.quote(HDST_IP)} "
                 f"--seed {GEN_SEED}"
             )
-            out = run_cmd(hsrc, f"{cmd} 2>&1 | tee {shlex.quote(gen_log)}")
-            time.sleep(0.5)
 
-            tx = parse_gen_stdout(out)
-            tx_total = tx["tx_total"]
+            run_cmd(hsrc, f"{cmd} 2>&1 | tee {shlex.quote(gen_log)}")
+            time.sleep(0.5)
 
             rx_pkts = count_pcap_packets(hdst, pcap_out)
             pps_measured = (rx_pkts / float(GEN_DURATION)) if GEN_DURATION > 0 else 0.0
 
-            lost_packets = tx_total - rx_pkts
+            tx_target = int(round(float(GEN_DURATION) * int(pps)))
+            lost_packets = tx_target - rx_pkts
             if lost_packets < 0:
                 lost_packets = 0
-            loss_percent = (lost_packets / tx_total * 100.0) if tx_total > 0 else 0.0
-
-            bps_measured = 0.0
+            loss_percent = (lost_packets / tx_target * 100.0) if tx_target > 0 else 0.0
 
             row = {
                 "timestamp": datetime.now().isoformat(timespec="seconds"),
                 "xdp": xdp_label,
-                "label": label,
+                "label": "trafico_eth",
                 "pps_target": pps,
                 "pps_measured": f"{pps_measured:.2f}",
-                "bps_measured": f"{bps_measured:.2f}",
+                "bps_measured": f"{0.0:.2f}",
                 "lost_percent": f"{loss_percent:.2f}",
                 "lost_packets": lost_packets,
                 "packets_total": rx_pkts,
-                "tx_packets_total": tx_total,
-                "tx_legit_packets": tx["tx_legit"],
-                "tx_mal_packets": tx["tx_mal"],
+                "tx_packets_target": tx_target,
             }
 
             write_header = not os.path.exists(csv_path)
@@ -489,7 +503,7 @@ def main():
         raise SystemExit("Este script debe ejecutarse como root (sudo).")
 
     ap = argparse.ArgumentParser(
-        description="Suite Mininet: iperf -> tcpreplay (legit/malign) -> trafico_eth.py (si -l y -m)"
+        description="Suite Mininet: iperf -> tcpreplay (legit/malign) -> trafico_eth.py"
     )
     ap.add_argument("--repo-root", required=True, help="Ruta absoluta al root del repo")
     ap.add_argument("-l", "--legit", dest="pcap_legit", default=None,
