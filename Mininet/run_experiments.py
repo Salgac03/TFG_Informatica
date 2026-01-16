@@ -130,6 +130,9 @@ def start_xdp(hdst, repo_root: str, iface: str, pid_path: str, log_path: str):
         + shlex.quote(
             f"cd {shlex.quote(xdp_dir)} && "
             f"echo '[XDP] start ts='$(date -Iseconds)' cwd='$(pwd)' iface={shlex.quote(iface)} bin={shlex.quote(xdp_bin)}' ; "
+            f"echo '[XDP] build: make -C {shlex.quote(xdp_dir)}' ; "
+            f"make -C {shlex.quote(xdp_dir)} 2>&1 | sed 's/^/[XDP][MAKE] /' ; "
+            f"chmod +x {shlex.quote('./' + os.path.basename(xdp_bin))} ; "
             f"ls -l xdp_kern.o 2>&1 | sed 's/^/[XDP] /' ; "
             f"exec {shlex.quote('./' + os.path.basename(xdp_bin))} {shlex.quote(iface)}"
         )
