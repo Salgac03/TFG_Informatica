@@ -157,7 +157,7 @@ int main(int argc, char **argv)
 
     if (bpf_obj_pin(map_fd, MAP_PATH) < 0 && errno != EEXIST) {
         perror("Error al fijar el mapa BPF en /sys/fs/bpf/");
-        return 1;
+        //return 1;
     }
 
     prog = bpf_object__find_program_by_name(obj, "ransomware_tree");
