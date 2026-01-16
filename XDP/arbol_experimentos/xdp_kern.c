@@ -177,6 +177,9 @@ int ransomware_tree(struct xdp_md *ctx)
             }
 
 
+	if ( action != XDP_DROP)
+		action = XDP_PASS;
+
     return action;
 }
 

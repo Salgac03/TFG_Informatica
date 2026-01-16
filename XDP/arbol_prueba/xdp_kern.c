@@ -185,6 +185,9 @@ int ransomware_tree(struct xdp_md *ctx)
             }
 
 
+	if ( action != XDP_DROP)
+		action = XDP_PASS;
+
     __u32 key = (action == XDP_DROP) ? 0 : 1;
     __u64 *count = bpf_map_lookup_elem(&packet_count, &key);
     if (count)
