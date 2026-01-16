@@ -120,21 +120,22 @@ def pps_to_bitrate_bps(pps: int, payload_bytes: int) -> int:
 def start_xdp(hdst, repo_root: str, iface: str, pid_path: str, log_path: str):
     xdp_bin = os.path.join(repo_root, XDP_USR_REL_PATH)
     xdp_dir = os.path.dirname(xdp_bin)
+    xdp_name = os.path.basename(xdp_bin)
 
     run_cmd(hdst, f"chmod +x {shlex.quote(xdp_bin)}")
 
-    # Lanzar SIEMPRE desde el directorio del binario (donde suele estar xdp_kern.o)
-    # y dejar un log útil en cada activación (header + stdout/stderr).
     runline = (
         "bash -lc "
         + shlex.quote(
             f"cd {shlex.quote(xdp_dir)} && "
             f"echo '[XDP] start ts='$(date -Iseconds)' cwd='$(pwd)' iface={shlex.quote(iface)} bin={shlex.quote(xdp_bin)}' ; "
-            f"echo '[XDP] build: make -C {shlex.quote(xdp_dir)}' ; "
+            f"echo '[XDP] build: make clean && make' ; "
+            f"make -C {shlex.quote(xdp_dir)} clean 2>&1 | sed 's/^/[XDP][CLEAN] /' ; "
             f"make -C {shlex.quote(xdp_dir)} 2>&1 | sed 's/^/[XDP][MAKE] /' ; "
-            f"chmod +x {shlex.quote('./' + os.path.basename(xdp_bin))} ; "
+            f"chmod +x {shlex.quote('./' + xdp_name)} ; "
+            f"ldd {shlex.quote('./' + xdp_name)} | grep -i libbpf | sed 's/^/[XDP][LDD] /' || true ; "
             f"ls -l xdp_kern.o 2>&1 | sed 's/^/[XDP] /' ; "
-            f"exec {shlex.quote('./' + os.path.basename(xdp_bin))} {shlex.quote(iface)}"
+            f"exec {shlex.quote('./' + xdp_name)} {shlex.quote(iface)}"
         )
     )
 
