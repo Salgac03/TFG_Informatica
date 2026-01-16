@@ -119,8 +119,23 @@ def pps_to_bitrate_bps(pps: int, payload_bytes: int) -> int:
 
 def start_xdp(hdst, repo_root: str, iface: str, pid_path: str, log_path: str):
     xdp_bin = os.path.join(repo_root, XDP_USR_REL_PATH)
+    xdp_dir = os.path.dirname(xdp_bin)
+
     run_cmd(hdst, f"chmod +x {shlex.quote(xdp_bin)}")
-    start_bg(hdst, f"{shlex.quote(xdp_bin)} {shlex.quote(iface)}", pid_path, log_path)
+
+    # Lanzar SIEMPRE desde el directorio del binario (donde suele estar xdp_kern.o)
+    # y dejar un log útil en cada activación (header + stdout/stderr).
+    runline = (
+        "bash -lc "
+        + shlex.quote(
+            f"cd {shlex.quote(xdp_dir)} && "
+            f"echo '[XDP] start ts='$(date -Iseconds)' cwd='$(pwd)' iface={shlex.quote(iface)} bin={shlex.quote(xdp_bin)}' ; "
+            f"ls -l xdp_kern.o 2>&1 | sed 's/^/[XDP] /' ; "
+            f"exec {shlex.quote('./' + os.path.basename(xdp_bin))} {shlex.quote(iface)}"
+        )
+    )
+
+    start_bg(hdst, runline, pid_path, log_path)
 
 
 def preflight(net, suite_dir: str):
