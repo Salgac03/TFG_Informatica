@@ -70,7 +70,7 @@ SLEEP_BETWEEN_BLOCKS_DEFAULT = 6.0
 SLEEP_BETWEEN_EXPERIMENTS_DEFAULT = 8.0
 
 # XDP
-XDP_USR_REL_PATH = "XDP/arbol_experimentos/xdp_usr"
+XDP_USR_REL_PATH = "XDP/arbol_prueba/xdp_usr"
 
 # generador
 GEN_SCRIPT_REL_PATH = "Mininet/trafico_eth_v3.py"
