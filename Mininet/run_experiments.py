@@ -69,9 +69,7 @@ SLEEP_BETWEEN_EXPERIMENTS_DEFAULT = 8.0
 XDP_USR_REL_PATH = "XDP/arbol_prueba/xdp_usr"
 
 # generador
-GEN_SCRIPT_REL_PATH = "Mininet/trafico_eth_v3.py"
-
-
+GEN_SCRIPT_REL_PATH = "Mininet/script_reenvio_v3.py"
 # ======================================================
 # CSV layout común
 # ======================================================
@@ -363,7 +361,6 @@ def tcpreplay_sweep(net, results_dir: str, repo_root: str, pcap_path: str, label
         tcpdump_log = os.path.join(logs_dir, f"tcpdump_{tag}.log")
         tcpdump_pid = os.path.join(logs_dir, f"tcpdump_{tag}.pid")
         tcpreplay_log = os.path.join(logs_dir, f"tcpreplay_{tag}.log")
-
         start_bg(
             hdst,
             f"timeout {duration} tcpdump -i {shlex.quote(rx_iface)} -n -U -s 0 -w {shlex.quote(rx_pcap)}",
@@ -448,21 +445,54 @@ def tcpreplay_sweep(net, results_dir: str, repo_root: str, pcap_path: str, label
 # ======================================================
 
 
-GEN_OUT_RE = re.compile(
-    r"total=(?P<total>\d+)\s+pps≈(?P<pps>[0-9.]+)\s+legit=(?P<legit>\d+)\s+mal=(?P<mal>\d+).*elapsed=(?P<elapsed>[0-9.]+)s"
+GEN_BURST_RE = re.compile(
+    r"\[burst\s+\d+\]\s+type=(?P<typ>MAL|LEGIT)\s+pkts=(?P<pkts>\d+)"
 )
+GEN_DONE_RE = re.compile(r"elapsed=(?P<elapsed>[0-9.]+)s")
 
 
 def parse_gen_stdout(out: str, default_elapsed: float):
-    m = GEN_OUT_RE.search(out)
-    if not m:
-        return {"tx_total": 0, "tx_legit": 0, "tx_mal": 0, "elapsed": float(default_elapsed)}
-    return {
-        "tx_total": int(m.group("total")),
-        "tx_legit": int(m.group("legit")),
-        "tx_mal": int(m.group("mal")),
-        "elapsed": float(m.group("elapsed")),
-    }
+    """Parsea stdout del generador (script_reenvio_*).
+
+    Soporta dos formatos:
+      1) Por ráfagas (antiguo):
+         [burst N] type=MAL/LEGIT pkts=...
+         ...
+         elapsed=...s
+
+      2) Por PCAP auxiliar (nuevo):
+         sent_packets_target=NNN
+         (opcionalmente) sent_packets=NNN
+
+    Devuelve: tx_total/tx_legit/tx_mal/elapsed
+    """
+    legit = mal = total = 0
+
+    # Formato 1: ráfagas
+    for m in GEN_BURST_RE.finditer(out):
+        pkts = int(m.group("pkts"))
+        total += pkts
+        if m.group("typ") == "MAL":
+            mal += pkts
+        else:
+            legit += pkts
+
+    # Formato 2: objetivo explícito
+    if total == 0:
+        import re
+        m_target = re.search(r"sent_packets_target=(\d+)", out)
+        if m_target:
+            total = int(m_target.group(1))
+            # En este modo no distinguimos legit/mal en TX (a menos que el generador lo imprima)
+            legit = 0
+            mal = 0
+
+    m2 = GEN_DONE_RE.search(out)
+    elapsed = float(m2.group("elapsed")) if m2 else float(default_elapsed)
+
+    return {"tx_total": total, "tx_legit": legit, "tx_mal": mal, "elapsed": elapsed}
+
+
 
 
 def trafico_eth_sweep(net, results_dir: str, repo_root: str, pcap_legit: str, pcap_malign: str,
@@ -504,7 +534,7 @@ def trafico_eth_sweep(net, results_dir: str, repo_root: str, pcap_legit: str, pc
 
         start_bg(
             hdst,
-            f"timeout {duration} tcpdump -i {shlex.quote(rx_iface)} -n -U -s 0 -w {shlex.quote(rx_pcap)}",
+            f"tcpdump -i {shlex.quote(rx_iface)} -n -U -s 0 -w {shlex.quote(rx_pcap)} \"ether src {src_mac} and ether dst {dst_mac}\"",
             tcpdump_pid, tcpdump_log
         )
         time.sleep(0.6)
@@ -514,15 +544,10 @@ def trafico_eth_sweep(net, results_dir: str, repo_root: str, pcap_legit: str, pc
             f"{shlex.quote(sys.executable)} {shlex.quote(gen_script)} "
             f"--legit {shlex.quote(pcap_legit)} "
             f"--mal {shlex.quote(pcap_malign)} "
-            f"--duration {duration} "
-            f"--burst-ms {GEN_BURST_MS} "
-            f"--p-mal {GEN_P_MAL} "
-            f"--rate {int(pps)} "
-            f"--batch {GEN_BATCH} "
             f"--iface {shlex.quote(tx_iface)} "
-            f"--src-mac {src_mac} "
-            f"--dst-mac {dst_mac} "
-            f"--dst-ip {shlex.quote(hdst_ip)} "
+            f"--pps {float(pps)} "
+            f"--duration {float(duration)} "
+            f"--prob-mal {GEN_P_MAL} "
             f"--seed {GEN_SEED}"
         )
         out = run_cmd(hsrc, f"{cmd} 2>&1 | tee {shlex.quote(gen_log)}")
