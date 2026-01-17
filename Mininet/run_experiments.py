@@ -511,7 +511,7 @@ def trafico_eth_sweep(net, results_dir: str, repo_root: str, pcap_legit: str, pc
     os.makedirs(logs_dir, exist_ok=True)
 
     csv_path = os.path.join(base_dir, "trafico_eth_results.csv")
-    header = CSV_COMMON + ["tx_packets_total", "tx_legit_packets", "tx_mal_packets"]
+    header = CSV_COMMON 
 
     xdp_pid = os.path.join(base_dir, "xdp_usr_trafico_eth.pid")
     xdp_log = os.path.join(base_dir, "xdp_usr_trafico_eth.log")
@@ -584,7 +584,6 @@ def trafico_eth_sweep(net, results_dir: str, repo_root: str, pcap_legit: str, pc
             "paquetes_filtrados": int(drops_iter),
             "paquetes_perdidos_reales": int(real_lost),
             "lost_real_percent": f"{real_percent:.4f}",
-            "tx_packets_total": int(tx_total),
         }
 
         write_header = not os.path.exists(csv_path)
