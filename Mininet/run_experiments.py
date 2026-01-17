@@ -69,7 +69,7 @@ SLEEP_BETWEEN_EXPERIMENTS_DEFAULT = 8.0
 XDP_USR_REL_PATH = "XDP/arbol_prueba/xdp_usr"
 
 # generador
-GEN_SCRIPT_REL_PATH = "Mininet/script_reenvio_v3.py"
+GEN_SCRIPT_REL_PATH = "Mininet/script_reenvio.py"
 # ======================================================
 # CSV layout común
 # ======================================================
@@ -585,8 +585,6 @@ def trafico_eth_sweep(net, results_dir: str, repo_root: str, pcap_legit: str, pc
             "paquetes_perdidos_reales": int(real_lost),
             "lost_real_percent": f"{real_percent:.4f}",
             "tx_packets_total": int(tx_total),
-            "tx_legit_packets": int(tx["tx_legit"]),
-            "tx_mal_packets": int(tx["tx_mal"]),
         }
 
         write_header = not os.path.exists(csv_path)
