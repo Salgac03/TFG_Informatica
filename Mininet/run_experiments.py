@@ -2,15 +2,25 @@
 # -*- coding: utf-8 -*-
 """run_experiments_suite_v12_xdpdrop_delta.py
 
-Igual que tu run_experiments_xdpdrop_csv.py, pero con el cambio que querías:
+Basado en el script que me pasaste (suite v12 con XDP_DROP por delta, SIN reinicios
+de xdp_usr) y con cambios *solo* de CSV:
 
-- Con XDP=on NO se reinicia xdp_usr por cada iteración.
-- Se deja xdp_usr corriendo durante todo el bloque y se guarda en el CSV el
-  DATO PROPIO de cada iteración usando delta:
-      drops_iter = drops_now - drops_prev
+CSV (los 3 tipos) arranca con este orden fijo:
+  1) timestamp
+  2) xdp
+  3) label
+  4) pps_target
+  5) pps_measured
+  6) packets_total
+  7) lost_packets
+  8) lost_percent
+  9) paquetes_filtrados
+ 10) paquetes_perdidos_reales = max(0, lost_packets - paquetes_filtrados)
+ 11) lost_real_percent = paquetes_perdidos_reales / expected * 100
 
-Esto evita mezclar 64/128/256 en el mismo número y además elimina la fragilidad
-de relanzar xdp_usr (y el error de /sys/fs/bpf si tu xdp_usr pinnea mapas).
+Luego cada prueba añade sus columnas extra (iperf: bps_measured; generator: tx_*).
+
+IMPORTANTE: no se toca la lógica de "paquetes_filtrados" (delta por iteración).
 """
 
 import argparse
@@ -63,8 +73,43 @@ GEN_SCRIPT_REL_PATH = "Mininet/trafico_eth_v3.py"
 
 
 # ======================================================
+# CSV layout común
+# ======================================================
+
+CSV_COMMON = [
+    "timestamp",
+    "xdp",
+    "label",
+    "pps_target",
+    "pps_measured",
+    "packets_total",
+    "lost_packets",
+    "lost_percent",
+    "paquetes_filtrados",
+    "paquetes_perdidos_reales",
+    "lost_real_percent",
+]
+
+
+def compute_real_losses(packets_total: int, lost_packets: int, filtered: int):
+    """Calcula pérdidas reales y su %.
+
+    expected = packets_total + lost_packets
+    real_lost = max(0, lost_packets - filtered)
+    real_percent = real_lost / expected * 100
+    """
+    expected = int(packets_total) + int(lost_packets)
+    real_lost = int(lost_packets) - int(filtered)
+    if real_lost < 0:
+        real_lost = 0
+    real_percent = (real_lost / expected * 100.0) if expected > 0 else 0.0
+    return real_lost, real_percent
+
+
+# ======================================================
 # UTILS
 # ======================================================
+
 
 def now_tag():
     return datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -98,13 +143,7 @@ def clear_file(host, path: str):
 
 
 def get_last_xdp_drop(hdst, log_path: str) -> int:
-    """Devuelve el último contador XDP_DROP del log de xdp_usr (o 0 si no existe).
-
-    Nota: cuando stdout se redirige a fichero, si xdp_usr no fuerza flush, el log
-    puede quedarse "atrás". Por eso preferimos un formato de una sola línea:
-      XDP_STATS drop=<n> pass=<n>
-    y hacemos fallback al mensaje humano anterior.
-    """
+    """Devuelve el último contador XDP_DROP del log de xdp_usr (o 0 si no existe)."""
     cmd = (
         f"(grep -F 'XDP_STATS drop=' {shlex.quote(log_path)} 2>/dev/null "
         f"| tail -n 1 "
@@ -176,6 +215,7 @@ def preflight(net, suite_dir: str):
 # IPERF
 # ======================================================
 
+
 def parse_iperf_json(out: str, duration: int):
     j = json.loads(out)
     end = j.get("end", {})
@@ -199,10 +239,7 @@ def iperf_sweep(net, results_dir: str, repo_root: str, pps_steps, duration: int,
     rx_iface = hdst.defaultIntf().name
 
     csv_path = os.path.join(results_dir, "iperf_results.csv")
-    header = [
-        "timestamp","xdp","pps_target","pps_measured","bps_measured",
-        "lost_percent","lost_packets","packets_total","paquetes_filtrados","note"
-    ]
+    header = CSV_COMMON + ["bps_measured"]
 
     xdp_pid = os.path.join(results_dir, "xdp_usr_iperf.pid")
     xdp_log = os.path.join(results_dir, "xdp_usr_iperf.log")
@@ -229,35 +266,35 @@ def iperf_sweep(net, results_dir: str, repo_root: str, pps_steps, duration: int,
 
         stop_bg(hdst, srv_pid)
 
-        note = ""
         try:
             packets, lost_packets, lost_percent, bps, pps_measured = parse_iperf_json(out, duration)
         except Exception:
             packets = lost_packets = 0
             lost_percent = 0.0
             bps = pps_measured = 0.0
-            note = "iperf_json_parse_failed (ver raw)"
 
         drops_iter = 0
         if xdp_label == "on":
-            # Espera a que xdp_usr haga al menos una impresión/flush tras la iteración
-            # (xdp_usr imprime cada ~1s). Esto evita capturar el mismo valor anterior.
             time.sleep(1.1)
             drops_now = get_last_xdp_drop(hdst, xdp_log)
             drops_iter = xdp_drop_delta(drops_now, drops_prev)
             drops_prev = drops_now
 
+        real_lost, real_percent = compute_real_losses(packets, lost_packets, drops_iter)
+
         row = {
             "timestamp": datetime.now().isoformat(timespec="seconds"),
             "xdp": xdp_label,
+            "label": "iperf",
             "pps_target": pps,
             "pps_measured": f"{pps_measured:.2f}",
+            "packets_total": int(packets),
+            "lost_packets": int(lost_packets),
+            "lost_percent": f"{float(lost_percent):.4f}",
+            "paquetes_filtrados": int(drops_iter),
+            "paquetes_perdidos_reales": int(real_lost),
+            "lost_real_percent": f"{real_percent:.4f}",
             "bps_measured": f"{bps:.2f}",
-            "lost_percent": f"{lost_percent:.2f}",
-            "lost_packets": lost_packets,
-            "packets_total": packets,
-            "paquetes_filtrados": drops_iter,
-            "note": note,
         }
 
         write_header = not os.path.exists(csv_path)
@@ -282,7 +319,6 @@ def iperf_sweep(net, results_dir: str, repo_root: str, pps_steps, duration: int,
     print("[IPERF] con XDP (delta por PPS, sin reinicios)")
     clear_file(hdst, xdp_log)
     start_xdp(hdst, repo_root, rx_iface, xdp_pid, xdp_log)
-    # pequeño margen para que xdp_usr arranque y empiece a imprimir
     time.sleep(0.8)
     drops_prev = get_last_xdp_drop(hdst, xdp_log)
     try:
@@ -294,8 +330,9 @@ def iperf_sweep(net, results_dir: str, repo_root: str, pps_steps, duration: int,
 
 
 # ======================================================
-# TCPREPLAY (SIN tcprewrite)
+# TCPREPLAY
 # ======================================================
+
 
 def tcpreplay_sweep(net, results_dir: str, repo_root: str, pcap_path: str, label: str,
                    pps_steps, duration: int, sleep_between_runs: float, sleep_between_blocks: float):
@@ -310,10 +347,7 @@ def tcpreplay_sweep(net, results_dir: str, repo_root: str, pcap_path: str, label
     os.makedirs(logs_dir, exist_ok=True)
 
     csv_path = os.path.join(base_dir, f"tcpreplay_{label}_results.csv")
-    header = [
-        "timestamp","xdp","label","pps_target","pps_measured",
-        "lost_percent","lost_packets","packets_total","paquetes_filtrados","note"
-    ]
+    header = CSV_COMMON
 
     xdp_pid = os.path.join(base_dir, f"xdp_usr_tcpreplay_{label}.pid")
     xdp_log = os.path.join(base_dir, f"xdp_usr_tcpreplay_{label}.log")
@@ -343,11 +377,7 @@ def tcpreplay_sweep(net, results_dir: str, repo_root: str, pcap_path: str, label
             f"tcpreplay --intf1={shlex.quote(tx_iface)} --pps={int(pps)} --limit={limit_pkts} "
             f"{shlex.quote(pcap_path)}"
         )
-        out = run_cmd(hsrc, f"{play_cmd} > {shlex.quote(tcpreplay_log)} 2>&1; echo ?$")
-        # Nota: mantenemos el comportamiento anterior: extraer RC de la última línea
-        lines = out.strip().splitlines()
-        play_rc = int(lines[-1]) if lines and lines[-1].isdigit() else 99
-        note = "" if play_rc == 0 else f"tcpreplay_rc={play_rc} (ver log)"
+        run_cmd(hsrc, f"{play_cmd} > {shlex.quote(tcpreplay_log)} 2>&1")
 
         time.sleep(1.0)
         stop_bg(hdst, tcpdump_pid)
@@ -365,17 +395,20 @@ def tcpreplay_sweep(net, results_dir: str, repo_root: str, pcap_path: str, label
             drops_iter = xdp_drop_delta(drops_now, drops_prev)
             drops_prev = drops_now
 
+        real_lost, real_percent = compute_real_losses(rx_pkts, lost, drops_iter)
+
         row = {
             "timestamp": datetime.now().isoformat(timespec="seconds"),
             "xdp": xdp_label,
             "label": label,
             "pps_target": pps,
             "pps_measured": f"{pps_measured:.2f}",
-            "lost_percent": f"{loss_percent:.2f}",
-            "lost_packets": lost,
-            "packets_total": rx_pkts,
-            "paquetes_filtrados": drops_iter,
-            "note": note,
+            "packets_total": int(rx_pkts),
+            "lost_packets": int(lost),
+            "lost_percent": f"{loss_percent:.4f}",
+            "paquetes_filtrados": int(drops_iter),
+            "paquetes_perdidos_reales": int(real_lost),
+            "lost_real_percent": f"{real_percent:.4f}",
         }
 
         write_header = not os.path.exists(csv_path)
@@ -396,7 +429,7 @@ def tcpreplay_sweep(net, results_dir: str, repo_root: str, pcap_path: str, label
 
     time.sleep(sleep_between_blocks)
 
-    # --- ON (xdp_usr vivo durante todo el bloque) ---
+    # --- ON ---
     print(f"[TCP] {label} con XDP (delta por PPS, sin reinicios)")
     clear_file(hdst, xdp_log)
     start_xdp(hdst, repo_root, rx_iface, xdp_pid, xdp_log)
@@ -413,6 +446,7 @@ def tcpreplay_sweep(net, results_dir: str, repo_root: str, pcap_path: str, label
 # ======================================================
 # TRAFICO_ETH
 # ======================================================
+
 
 GEN_OUT_RE = re.compile(
     r"total=(?P<total>\d+)\s+pps≈(?P<pps>[0-9.]+)\s+legit=(?P<legit>\d+)\s+mal=(?P<mal>\d+).*elapsed=(?P<elapsed>[0-9.]+)s"
@@ -447,14 +481,7 @@ def trafico_eth_sweep(net, results_dir: str, repo_root: str, pcap_legit: str, pc
     os.makedirs(logs_dir, exist_ok=True)
 
     csv_path = os.path.join(base_dir, "trafico_eth_results.csv")
-    header = [
-        "timestamp","xdp","label",
-        "pps_target","pps_measured",
-        "lost_percent","lost_packets","packets_total",
-        "tx_packets_total","tx_legit_packets","tx_mal_packets",
-        "paquetes_filtrados",
-        "note",
-    ]
+    header = CSV_COMMON + ["tx_packets_total", "tx_legit_packets", "tx_mal_packets"]
 
     xdp_pid = os.path.join(base_dir, "xdp_usr_trafico_eth.pid")
     xdp_log = os.path.join(base_dir, "xdp_usr_trafico_eth.log")
@@ -510,7 +537,6 @@ def trafico_eth_sweep(net, results_dir: str, repo_root: str, pcap_legit: str, pc
         pps_measured = (rx_pkts / float(duration)) if duration > 0 else 0.0
         lost = max(0, tx_total - rx_pkts)
         loss_percent = (lost / tx_total * 100.0) if tx_total > 0 else 0.0
-        note = "" if tx_total > 0 else "gen_sent_0 (ver gen log)"
 
         drops_iter = 0
         if xdp_label == "on":
@@ -519,20 +545,23 @@ def trafico_eth_sweep(net, results_dir: str, repo_root: str, pcap_legit: str, pc
             drops_iter = xdp_drop_delta(drops_now, drops_prev)
             drops_prev = drops_now
 
+        real_lost, real_percent = compute_real_losses(rx_pkts, lost, drops_iter)
+
         row = {
             "timestamp": datetime.now().isoformat(timespec="seconds"),
             "xdp": xdp_label,
             "label": "trafico_eth",
             "pps_target": pps,
             "pps_measured": f"{pps_measured:.2f}",
-            "lost_percent": f"{loss_percent:.2f}",
-            "lost_packets": lost,
-            "packets_total": rx_pkts,
-            "tx_packets_total": tx_total,
-            "tx_legit_packets": tx["tx_legit"],
-            "tx_mal_packets": tx["tx_mal"],
-            "paquetes_filtrados": drops_iter,
-            "note": note,
+            "packets_total": int(rx_pkts),
+            "lost_packets": int(lost),
+            "lost_percent": f"{loss_percent:.4f}",
+            "paquetes_filtrados": int(drops_iter),
+            "paquetes_perdidos_reales": int(real_lost),
+            "lost_real_percent": f"{real_percent:.4f}",
+            "tx_packets_total": int(tx_total),
+            "tx_legit_packets": int(tx["tx_legit"]),
+            "tx_mal_packets": int(tx["tx_mal"]),
         }
 
         write_header = not os.path.exists(csv_path)
@@ -571,11 +600,12 @@ def trafico_eth_sweep(net, results_dir: str, repo_root: str, pcap_legit: str, pc
 # MAIN
 # ======================================================
 
+
 def main():
     if os.geteuid() != 0:
         raise SystemExit("Este script debe ejecutarse como root (sudo).")
 
-    ap = argparse.ArgumentParser(description="Suite Mininet v12 (XDP_DROP por delta, sin reinicios de xdp_usr)")
+    ap = argparse.ArgumentParser(description="Suite Mininet v12 (XDP_DROP por delta, CSV reordenado + pérdidas reales)")
     ap.add_argument("--repo-root", required=True)
     ap.add_argument("-l", "--legit", dest="pcap_legit", required=True,
                     help="PCAP legit ya prewritten para Mininet (recomendado)")
