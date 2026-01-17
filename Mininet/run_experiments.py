@@ -1,30 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""run_experiments_suite_v12.py
+"""run_experiments_suite_v12_xdpdrop_delta.py
 
-Suite completa Mininet (v12):
-  1) iperf (UDP) sin XDP + con XDP
-  2) tcpreplay (legit/malign) sin XDP + con XDP  (SIN tcprewrite)
-  3) trafico_eth.py sin XDP + con XDP
+Igual que tu run_experiments_xdpdrop_csv.py, pero con el cambio que querías:
 
-IMPORTANTE:
-- Esta v9 NO usa tcprewrite dentro de los tests.
-- Para tcpreplay, se asume que los PCAPs ya están adaptados a Mininet (MACs/checksums) usando:
-    prewrite_pcaps_for_mininet.py
-- Para iperf y trafico_eth no hace falta tcprewrite.
+- Con XDP=on NO se reinicia xdp_usr por cada iteración.
+- Se deja xdp_usr corriendo durante todo el bloque y se guarda en el CSV el
+  DATO PROPIO de cada iteración usando delta:
+      drops_iter = drops_now - drops_prev
 
-Uso:
-  sudo python3 run_experiments_suite_v12.py \
-    --repo-root /RUTA/REPO \
-    -l /RUTA/ABS/legit_mininet.pcap \
-    -m /RUTA/ABS/malign_mininet.pcap
-
-Opcional:
-  --skip-iperf --skip-tcpreplay --skip-generator
-  --quick   (reduce duraciones/sleeps para depurar)
-
-Salida:
-  /tmp/exp_suite_<tag>/
+Esto evita mezclar 64/128/256 en el mismo número y además elimina la fragilidad
+de relanzar xdp_usr (y el error de /sys/fs/bpf si tu xdp_usr pinnea mapas).
 """
 
 import argparse
@@ -102,7 +88,41 @@ def start_bg(host, cmd: str, pidfile: str, logfile: str):
 
 
 def stop_bg(host, pidfile: str):
-    host.cmd(f"kill $(cat {shlex.quote(pidfile)}) >/dev/null 2>&1 || true")
+    host.cmd(
+        f"test -f {shlex.quote(pidfile)} && kill $(cat {shlex.quote(pidfile)}) >/dev/null 2>&1 || true"
+    )
+
+
+def clear_file(host, path: str):
+    host.cmd(f"rm -f {shlex.quote(path)} >/dev/null 2>&1 || true")
+
+
+def get_last_xdp_drop(hdst, log_path: str) -> int:
+    """Devuelve el último contador XDP_DROP del log de xdp_usr (o 0 si no existe).
+
+    Nota: cuando stdout se redirige a fichero, si xdp_usr no fuerza flush, el log
+    puede quedarse "atrás". Por eso preferimos un formato de una sola línea:
+      XDP_STATS drop=<n> pass=<n>
+    y hacemos fallback al mensaje humano anterior.
+    """
+    cmd = (
+        f"(grep -F 'XDP_STATS drop=' {shlex.quote(log_path)} 2>/dev/null "
+        f"| tail -n 1 "
+        f"| sed -E 's/.*drop=([0-9]+).*/\\1/'"  # preferido
+        f") || "
+        f"(grep -F 'Total de paquetes descartados (XDP_DROP):' {shlex.quote(log_path)} 2>/dev/null "
+        f"| tail -n 1 "
+        f"| sed -E 's/.*: *([0-9]+).*/\\1/')"
+    )
+    out = hdst.cmd(cmd).strip()
+    return int(out) if out.isdigit() else 0
+
+
+def xdp_drop_delta(drops_now: int, drops_prev: int) -> int:
+    """Delta robusto por iteración (si el contador se resetea, no devolvemos negativos)."""
+    if drops_now < drops_prev:
+        return drops_now
+    return drops_now - drops_prev
 
 
 def count_pcap_packets(host, pcap_path: str) -> int:
@@ -181,75 +201,95 @@ def iperf_sweep(net, results_dir: str, repo_root: str, pps_steps, duration: int,
     csv_path = os.path.join(results_dir, "iperf_results.csv")
     header = [
         "timestamp","xdp","pps_target","pps_measured","bps_measured",
-        "lost_percent","lost_packets","packets_total","note"
+        "lost_percent","lost_packets","packets_total","paquetes_filtrados","note"
     ]
-
-    def run_block(xdp_label: str):
-        for pps in pps_steps:
-            print(f"[IPERF] XDP={xdp_label} PPS={pps}")
-            bitrate = pps_to_bitrate_bps(pps, IPERF_PAYLOAD_LEN)
-
-            tag = f"{xdp_label}_pps{pps}_{now_tag()}"
-            srv_log = os.path.join(raw_dir, f"iperf_srv_{tag}.log")
-            srv_pid = os.path.join(raw_dir, f"iperf_srv_{tag}.pid")
-            cli_raw = os.path.join(raw_dir, f"iperf_cli_{tag}.txt")
-
-            start_bg(hdst, f"iperf3 -s -p {IPERF_SERVER_PORT}", srv_pid, srv_log)
-            time.sleep(0.3)
-
-            cmd = (
-                f"iperf3 -c {hdst_ip} -p {IPERF_SERVER_PORT} "
-                f"-u -t {duration} -l {IPERF_PAYLOAD_LEN} -b {bitrate} -J"
-            )
-            out = run_cmd(hsrc, cmd)
-            with open(cli_raw, "w") as f:
-                f.write(out)
-
-            stop_bg(hdst, srv_pid)
-
-            note = ""
-            try:
-                packets, lost_packets, lost_percent, bps, pps_measured = parse_iperf_json(out, duration)
-            except Exception:
-                packets = lost_packets = 0
-                lost_percent = 0.0
-                bps = pps_measured = 0.0
-                note = "iperf_json_parse_failed (ver raw)"
-
-            row = {
-                "timestamp": datetime.now().isoformat(timespec="seconds"),
-                "xdp": xdp_label,
-                "pps_target": pps,
-                "pps_measured": f"{pps_measured:.2f}",
-                "bps_measured": f"{bps:.2f}",
-                "lost_percent": f"{lost_percent:.2f}",
-                "lost_packets": lost_packets,
-                "packets_total": packets,
-                "note": note,
-            }
-
-            write_header = not os.path.exists(csv_path)
-            with open(csv_path, "a", newline="") as f:
-                w = csv.DictWriter(f, fieldnames=header)
-                if write_header:
-                    w.writeheader()
-                w.writerow(row)
-
-            time.sleep(sleep_between_runs)
-
-    print("[IPERF] sin XDP")
-    run_block("off")
-    time.sleep(sleep_between_blocks)
 
     xdp_pid = os.path.join(results_dir, "xdp_usr_iperf.pid")
     xdp_log = os.path.join(results_dir, "xdp_usr_iperf.log")
-    print(f"[IPERF] Activando XDP en {rx_iface}")
+
+    def one_run(xdp_label: str, pps: int, drops_prev: int) -> int:
+        print(f"[IPERF] XDP={xdp_label} PPS={pps}")
+        bitrate = pps_to_bitrate_bps(pps, IPERF_PAYLOAD_LEN)
+
+        tag = f"{xdp_label}_pps{pps}_{now_tag()}"
+        srv_log = os.path.join(raw_dir, f"iperf_srv_{tag}.log")
+        srv_pid = os.path.join(raw_dir, f"iperf_srv_{tag}.pid")
+        cli_raw = os.path.join(raw_dir, f"iperf_cli_{tag}.txt")
+
+        start_bg(hdst, f"iperf3 -s -p {IPERF_SERVER_PORT}", srv_pid, srv_log)
+        time.sleep(0.3)
+
+        cmd = (
+            f"iperf3 -c {hdst_ip} -p {IPERF_SERVER_PORT} "
+            f"-u -t {duration} -l {IPERF_PAYLOAD_LEN} -b {bitrate} -J"
+        )
+        out = run_cmd(hsrc, cmd)
+        with open(cli_raw, "w") as f:
+            f.write(out)
+
+        stop_bg(hdst, srv_pid)
+
+        note = ""
+        try:
+            packets, lost_packets, lost_percent, bps, pps_measured = parse_iperf_json(out, duration)
+        except Exception:
+            packets = lost_packets = 0
+            lost_percent = 0.0
+            bps = pps_measured = 0.0
+            note = "iperf_json_parse_failed (ver raw)"
+
+        drops_iter = 0
+        if xdp_label == "on":
+            # Espera a que xdp_usr haga al menos una impresión/flush tras la iteración
+            # (xdp_usr imprime cada ~1s). Esto evita capturar el mismo valor anterior.
+            time.sleep(1.1)
+            drops_now = get_last_xdp_drop(hdst, xdp_log)
+            drops_iter = xdp_drop_delta(drops_now, drops_prev)
+            drops_prev = drops_now
+
+        row = {
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "xdp": xdp_label,
+            "pps_target": pps,
+            "pps_measured": f"{pps_measured:.2f}",
+            "bps_measured": f"{bps:.2f}",
+            "lost_percent": f"{lost_percent:.2f}",
+            "lost_packets": lost_packets,
+            "packets_total": packets,
+            "paquetes_filtrados": drops_iter,
+            "note": note,
+        }
+
+        write_header = not os.path.exists(csv_path)
+        with open(csv_path, "a", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=header)
+            if write_header:
+                w.writeheader()
+            w.writerow(row)
+
+        return drops_prev
+
+    # --- OFF ---
+    print("[IPERF] sin XDP")
+    drops_prev = 0
+    for pps in pps_steps:
+        drops_prev = one_run("off", pps, drops_prev)
+        time.sleep(sleep_between_runs)
+
+    time.sleep(sleep_between_blocks)
+
+    # --- ON (xdp_usr vivo durante todo el bloque) ---
+    print("[IPERF] con XDP (delta por PPS, sin reinicios)")
+    clear_file(hdst, xdp_log)
     start_xdp(hdst, repo_root, rx_iface, xdp_pid, xdp_log)
+    # pequeño margen para que xdp_usr arranque y empiece a imprimir
+    time.sleep(0.8)
+    drops_prev = get_last_xdp_drop(hdst, xdp_log)
     try:
-        print("[IPERF] con XDP")
-        run_block("on")
+        for pps in pps_steps:
+            drops_prev = one_run("on", pps, drops_prev)
+            time.sleep(sleep_between_runs)
     finally:
-        print("[IPERF] Desactivando XDP")
         stop_bg(hdst, xdp_pid)
 
 
@@ -272,85 +312,101 @@ def tcpreplay_sweep(net, results_dir: str, repo_root: str, pcap_path: str, label
     csv_path = os.path.join(base_dir, f"tcpreplay_{label}_results.csv")
     header = [
         "timestamp","xdp","label","pps_target","pps_measured",
-        "lost_percent","lost_packets","packets_total","note"
+        "lost_percent","lost_packets","packets_total","paquetes_filtrados","note"
     ]
+
+    xdp_pid = os.path.join(base_dir, f"xdp_usr_tcpreplay_{label}.pid")
+    xdp_log = os.path.join(base_dir, f"xdp_usr_tcpreplay_{label}.log")
 
     must_exist_file(pcap_path, f"PCAP {label} (mininet prewritten)")
     print(f"[TCP] {label} usando PCAP={pcap_path}")
 
-    def run_block(xdp_label: str):
-        for pps in pps_steps:
-            print(f"[TCP] {label} XDP={xdp_label} PPS={pps}")
-            tag = f"{label}_{xdp_label}_pps{pps}_{now_tag()}"
+    def one_run(xdp_label: str, pps: int, drops_prev: int) -> int:
+        print(f"[TCP] {label} XDP={xdp_label} PPS={pps}")
+        tag = f"{label}_{xdp_label}_pps{pps}_{now_tag()}"
 
-            rx_pcap = os.path.join(pcaps_dir, f"rx_{tag}.pcap")
-            tcpdump_log = os.path.join(logs_dir, f"tcpdump_{tag}.log")
-            tcpdump_pid = os.path.join(logs_dir, f"tcpdump_{tag}.pid")
-            tcpreplay_log = os.path.join(logs_dir, f"tcpreplay_{tag}.log")
+        rx_pcap = os.path.join(pcaps_dir, f"rx_{tag}.pcap")
+        tcpdump_log = os.path.join(logs_dir, f"tcpdump_{tag}.log")
+        tcpdump_pid = os.path.join(logs_dir, f"tcpdump_{tag}.pid")
+        tcpreplay_log = os.path.join(logs_dir, f"tcpreplay_{tag}.log")
 
-            start_bg(
-                hdst,
-                f"timeout {duration} tcpdump -i {shlex.quote(rx_iface)} -n -U -s 0 -w {shlex.quote(rx_pcap)}",
-                tcpdump_pid, tcpdump_log
-            )
-            time.sleep(0.6)
+        start_bg(
+            hdst,
+            f"timeout {duration} tcpdump -i {shlex.quote(rx_iface)} -n -U -s 0 -w {shlex.quote(rx_pcap)}",
+            tcpdump_pid, tcpdump_log
+        )
+        time.sleep(0.6)
 
-            # tcpreplay limitado para que dure ~{duration}s igual que tcpdump
-            # Con PCAPs enormes, sin --limit tcpreplay intentaría reproducir el fichero entero y se "queda colgado" a PPS bajos.
-            limit_pkts = int(round(duration * pps))
-            # timeout un pelín mayor para que no corte antes de tiempo por overhead
-            play_cmd = (
-                f"timeout {int(duration) + 3} "
-                f"tcpreplay --intf1={shlex.quote(tx_iface)} --pps={int(pps)} --limit={limit_pkts} "
-                f"{shlex.quote(pcap_path)}"
-            )
-            out = run_cmd(hsrc, f"{play_cmd} > {shlex.quote(tcpreplay_log)} 2>&1; echo $?").strip().splitlines()
-            play_rc = int(out[-1]) if out and out[-1].isdigit() else 99
-            note = "" if play_rc == 0 else f"tcpreplay_rc={play_rc} (ver log)"
+        limit_pkts = int(round(duration * pps))
+        play_cmd = (
+            f"timeout {int(duration) + 3} "
+            f"tcpreplay --intf1={shlex.quote(tx_iface)} --pps={int(pps)} --limit={limit_pkts} "
+            f"{shlex.quote(pcap_path)}"
+        )
+        out = run_cmd(hsrc, f"{play_cmd} > {shlex.quote(tcpreplay_log)} 2>&1; echo ?$")
+        # Nota: mantenemos el comportamiento anterior: extraer RC de la última línea
+        lines = out.strip().splitlines()
+        play_rc = int(lines[-1]) if lines and lines[-1].isdigit() else 99
+        note = "" if play_rc == 0 else f"tcpreplay_rc={play_rc} (ver log)"
 
-            time.sleep(1.0)
-            stop_bg(hdst, tcpdump_pid)
+        time.sleep(1.0)
+        stop_bg(hdst, tcpdump_pid)
 
-            rx_pkts = count_pcap_packets(hdst, rx_pcap)
-            pps_measured = (rx_pkts / duration) if duration > 0 else 0.0
-            expected = int(round(duration * pps))
-            lost = max(0, expected - rx_pkts)
-            loss_percent = (lost / expected * 100.0) if expected > 0 else 0.0
+        rx_pkts = count_pcap_packets(hdst, rx_pcap)
+        pps_measured = (rx_pkts / duration) if duration > 0 else 0.0
+        expected = int(round(duration * pps))
+        lost = max(0, expected - rx_pkts)
+        loss_percent = (lost / expected * 100.0) if expected > 0 else 0.0
 
-            row = {
-                "timestamp": datetime.now().isoformat(timespec="seconds"),
-                "xdp": xdp_label,
-                "label": label,
-                "pps_target": pps,
-                "pps_measured": f"{pps_measured:.2f}",
-                "lost_percent": f"{loss_percent:.2f}",
-                "lost_packets": lost,
-                "packets_total": rx_pkts,
-                "note": note,
-            }
+        drops_iter = 0
+        if xdp_label == "on":
+            time.sleep(1.1)
+            drops_now = get_last_xdp_drop(hdst, xdp_log)
+            drops_iter = xdp_drop_delta(drops_now, drops_prev)
+            drops_prev = drops_now
 
-            write_header = not os.path.exists(csv_path)
-            with open(csv_path, "a", newline="") as f:
-                w = csv.DictWriter(f, fieldnames=header)
-                if write_header:
-                    w.writeheader()
-                w.writerow(row)
+        row = {
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "xdp": xdp_label,
+            "label": label,
+            "pps_target": pps,
+            "pps_measured": f"{pps_measured:.2f}",
+            "lost_percent": f"{loss_percent:.2f}",
+            "lost_packets": lost,
+            "packets_total": rx_pkts,
+            "paquetes_filtrados": drops_iter,
+            "note": note,
+        }
 
-            time.sleep(sleep_between_runs)
+        write_header = not os.path.exists(csv_path)
+        with open(csv_path, "a", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=header)
+            if write_header:
+                w.writeheader()
+            w.writerow(row)
 
+        return drops_prev
+
+    # --- OFF ---
     print(f"[TCP] {label} sin XDP")
-    run_block("off")
+    drops_prev = 0
+    for pps in pps_steps:
+        drops_prev = one_run("off", pps, drops_prev)
+        time.sleep(sleep_between_runs)
+
     time.sleep(sleep_between_blocks)
 
-    xdp_pid = os.path.join(base_dir, f"xdp_usr_tcpreplay_{label}.pid")
-    xdp_log = os.path.join(base_dir, f"xdp_usr_tcpreplay_{label}.log")
-    print(f"[TCP] Activando XDP en {rx_iface} (tcpreplay {label})")
+    # --- ON (xdp_usr vivo durante todo el bloque) ---
+    print(f"[TCP] {label} con XDP (delta por PPS, sin reinicios)")
+    clear_file(hdst, xdp_log)
     start_xdp(hdst, repo_root, rx_iface, xdp_pid, xdp_log)
+    time.sleep(0.8)
+    drops_prev = get_last_xdp_drop(hdst, xdp_log)
     try:
-        print(f"[TCP] {label} con XDP")
-        run_block("on")
+        for pps in pps_steps:
+            drops_prev = one_run("on", pps, drops_prev)
+            time.sleep(sleep_between_runs)
     finally:
-        print(f"[TCP] Desactivando XDP (tcpreplay {label})")
         stop_bg(hdst, xdp_pid)
 
 
@@ -396,101 +452,118 @@ def trafico_eth_sweep(net, results_dir: str, repo_root: str, pcap_legit: str, pc
         "pps_target","pps_measured",
         "lost_percent","lost_packets","packets_total",
         "tx_packets_total","tx_legit_packets","tx_mal_packets",
+        "paquetes_filtrados",
         "note",
     ]
+
+    xdp_pid = os.path.join(base_dir, "xdp_usr_trafico_eth.pid")
+    xdp_log = os.path.join(base_dir, "xdp_usr_trafico_eth.log")
 
     gen_script = abspath(repo_root, GEN_SCRIPT_REL_PATH)
     print(f"[GEN] usando script={gen_script}")
     must_exist_file(gen_script, "trafico_eth.py")
 
-    # Para el generador usamos los PCAPs que nos pases (pueden ser originales o prewritten; da igual)
     must_exist_file(pcap_legit, "PCAP legit para generador")
     must_exist_file(pcap_malign, "PCAP malign para generador")
 
-    def run_block(xdp_label: str):
-        for pps in pps_steps:
-            print(f"[GEN] XDP={xdp_label} PPS={pps}")
-            tag = f"{xdp_label}_pps{pps}_{now_tag()}"
+    def one_run(xdp_label: str, pps: int, drops_prev: int) -> int:
+        print(f"[GEN] XDP={xdp_label} PPS={pps}")
+        tag = f"{xdp_label}_pps{pps}_{now_tag()}"
 
-            rx_pcap = os.path.join(pcaps_dir, f"rx_{tag}.pcap")
-            tcpdump_log = os.path.join(logs_dir, f"tcpdump_{tag}.log")
-            tcpdump_pid = os.path.join(logs_dir, f"tcpdump_{tag}.pid")
-            gen_log = os.path.join(logs_dir, f"gen_{tag}.log")
+        rx_pcap = os.path.join(pcaps_dir, f"rx_{tag}.pcap")
+        tcpdump_log = os.path.join(logs_dir, f"tcpdump_{tag}.log")
+        tcpdump_pid = os.path.join(logs_dir, f"tcpdump_{tag}.pid")
+        gen_log = os.path.join(logs_dir, f"gen_{tag}.log")
 
-            start_bg(
-                hdst,
-                f"timeout {duration} tcpdump -i {shlex.quote(rx_iface)} -n -U -s 0 -w {shlex.quote(rx_pcap)}",
-                tcpdump_pid, tcpdump_log
-            )
-            time.sleep(0.6)
+        start_bg(
+            hdst,
+            f"timeout {duration} tcpdump -i {shlex.quote(rx_iface)} -n -U -s 0 -w {shlex.quote(rx_pcap)}",
+            tcpdump_pid, tcpdump_log
+        )
+        time.sleep(0.6)
 
-            import sys
-            cmd = (
-                f"{shlex.quote(sys.executable)} {shlex.quote(gen_script)} "
-                f"--legit {shlex.quote(pcap_legit)} "
-                f"--mal {shlex.quote(pcap_malign)} "
-                f"--duration {duration} "
-                f"--burst-ms {GEN_BURST_MS} "
-                f"--p-mal {GEN_P_MAL} "
-                f"--rate {int(pps)} "
-                f"--batch {GEN_BATCH} "
-                f"--iface {shlex.quote(tx_iface)} "
-                f"--src-mac {src_mac} "
-                f"--dst-mac {dst_mac} "
-                f"--dst-ip {shlex.quote(hdst_ip)} "
-                f"--seed {GEN_SEED}"
-            )
-            out = run_cmd(hsrc, f"{cmd} 2>&1 | tee {shlex.quote(gen_log)}")
-            time.sleep(1.0)
+        import sys
+        cmd = (
+            f"{shlex.quote(sys.executable)} {shlex.quote(gen_script)} "
+            f"--legit {shlex.quote(pcap_legit)} "
+            f"--mal {shlex.quote(pcap_malign)} "
+            f"--duration {duration} "
+            f"--burst-ms {GEN_BURST_MS} "
+            f"--p-mal {GEN_P_MAL} "
+            f"--rate {int(pps)} "
+            f"--batch {GEN_BATCH} "
+            f"--iface {shlex.quote(tx_iface)} "
+            f"--src-mac {src_mac} "
+            f"--dst-mac {dst_mac} "
+            f"--dst-ip {shlex.quote(hdst_ip)} "
+            f"--seed {GEN_SEED}"
+        )
+        out = run_cmd(hsrc, f"{cmd} 2>&1 | tee {shlex.quote(gen_log)}")
+        time.sleep(1.0)
 
-            tx = parse_gen_stdout(out, duration)
-            tx_total = tx["tx_total"]
+        tx = parse_gen_stdout(out, duration)
+        tx_total = tx["tx_total"]
 
-            stop_bg(hdst, tcpdump_pid)
+        stop_bg(hdst, tcpdump_pid)
 
-            rx_pkts = count_pcap_packets(hdst, rx_pcap)
-            pps_measured = (rx_pkts / float(duration)) if duration > 0 else 0.0
-            lost = max(0, tx_total - rx_pkts)
-            loss_percent = (lost / tx_total * 100.0) if tx_total > 0 else 0.0
-            note = "" if tx_total > 0 else "gen_sent_0 (ver gen log)"
+        rx_pkts = count_pcap_packets(hdst, rx_pcap)
+        pps_measured = (rx_pkts / float(duration)) if duration > 0 else 0.0
+        lost = max(0, tx_total - rx_pkts)
+        loss_percent = (lost / tx_total * 100.0) if tx_total > 0 else 0.0
+        note = "" if tx_total > 0 else "gen_sent_0 (ver gen log)"
 
-            row = {
-                "timestamp": datetime.now().isoformat(timespec="seconds"),
-                "xdp": xdp_label,
-                "label": "trafico_eth",
-                "pps_target": pps,
-                "pps_measured": f"{pps_measured:.2f}",
-                "lost_percent": f"{loss_percent:.2f}",
-                "lost_packets": lost,
-                "packets_total": rx_pkts,
-                "tx_packets_total": tx_total,
-                "tx_legit_packets": tx["tx_legit"],
-                "tx_mal_packets": tx["tx_mal"],
-                "note": note,
-            }
+        drops_iter = 0
+        if xdp_label == "on":
+            time.sleep(1.1)
+            drops_now = get_last_xdp_drop(hdst, xdp_log)
+            drops_iter = xdp_drop_delta(drops_now, drops_prev)
+            drops_prev = drops_now
 
-            write_header = not os.path.exists(csv_path)
-            with open(csv_path, "a", newline="") as f:
-                w = csv.DictWriter(f, fieldnames=header)
-                if write_header:
-                    w.writeheader()
-                w.writerow(row)
+        row = {
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "xdp": xdp_label,
+            "label": "trafico_eth",
+            "pps_target": pps,
+            "pps_measured": f"{pps_measured:.2f}",
+            "lost_percent": f"{loss_percent:.2f}",
+            "lost_packets": lost,
+            "packets_total": rx_pkts,
+            "tx_packets_total": tx_total,
+            "tx_legit_packets": tx["tx_legit"],
+            "tx_mal_packets": tx["tx_mal"],
+            "paquetes_filtrados": drops_iter,
+            "note": note,
+        }
 
-            time.sleep(sleep_between_runs)
+        write_header = not os.path.exists(csv_path)
+        with open(csv_path, "a", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=header)
+            if write_header:
+                w.writeheader()
+            w.writerow(row)
 
+        return drops_prev
+
+    # --- OFF ---
     print("[GEN] sin XDP")
-    run_block("off")
+    drops_prev = 0
+    for pps in pps_steps:
+        drops_prev = one_run("off", pps, drops_prev)
+        time.sleep(sleep_between_runs)
+
     time.sleep(sleep_between_blocks)
 
-    xdp_pid = os.path.join(base_dir, "xdp_usr_trafico_eth.pid")
-    xdp_log = os.path.join(base_dir, "xdp_usr_trafico_eth.log")
-    print(f"[GEN] Activando XDP en {rx_iface} (trafico_eth)")
+    # --- ON ---
+    print("[GEN] con XDP (delta por PPS, sin reinicios)")
+    clear_file(hdst, xdp_log)
     start_xdp(hdst, repo_root, rx_iface, xdp_pid, xdp_log)
+    time.sleep(0.8)
+    drops_prev = get_last_xdp_drop(hdst, xdp_log)
     try:
-        print("[GEN] con XDP")
-        run_block("on")
+        for pps in pps_steps:
+            drops_prev = one_run("on", pps, drops_prev)
+            time.sleep(sleep_between_runs)
     finally:
-        print("[GEN] Desactivando XDP (trafico_eth)")
         stop_bg(hdst, xdp_pid)
 
 
@@ -502,7 +575,7 @@ def main():
     if os.geteuid() != 0:
         raise SystemExit("Este script debe ejecutarse como root (sudo).")
 
-    ap = argparse.ArgumentParser(description="Suite Mininet v12 (sin tcprewrite, tcpreplay limitado, generator path fix)")
+    ap = argparse.ArgumentParser(description="Suite Mininet v12 (XDP_DROP por delta, sin reinicios de xdp_usr)")
     ap.add_argument("--repo-root", required=True)
     ap.add_argument("-l", "--legit", dest="pcap_legit", required=True,
                     help="PCAP legit ya prewritten para Mininet (recomendado)")
@@ -516,14 +589,12 @@ def main():
 
     repo_root = args.repo_root
 
-    # Resolver rutas absolutas para consistencia
     pcap_legit = abspath(repo_root, args.pcap_legit)
     pcap_malign = abspath(repo_root, args.pcap_malign)
 
     must_exist_file(pcap_legit, "PCAP legit")
     must_exist_file(pcap_malign, "PCAP malign")
 
-    # Parámetros runtime
     pps_steps = PPS_STEPS_DEFAULT
     iperf_duration = 10
     tcpreplay_duration = TCPREPLAY_DURATION_DEFAULT

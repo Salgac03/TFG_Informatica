@@ -132,6 +132,15 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    /*
+     * IMPORTANT: when stdout is redirected to a file (as done by the experiment
+     * launcher), libc usually switches stdout to fully-buffered mode. That can
+     * delay our per-second prints until the buffer fills or the process exits.
+     * Make stdout/stderr unbuffered so the launcher can parse the log reliably.
+     */
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
+
     ifindex = if_nametoindex(argv[1]);
     if (ifindex == 0) {
         perror("Error al obtener el índice de la interfaz");
@@ -205,9 +214,15 @@ int main(int argc, char **argv)
             perror("Error al leer contador de paquetes pasados");
         }
 
+        /* Human-readable */
         printf("\nTotal de paquetes descartados (XDP_DROP): %llu\n",
                (unsigned long long)drop_count);
         printf("Total de paquetes pasados (XDP_PASS): %llu\n",
+               (unsigned long long)pass_count);
+
+        /* Machine-friendly single line (easier to grep/awk reliably) */
+        printf("XDP_STATS drop=%llu pass=%llu\n",
+               (unsigned long long)drop_count,
                (unsigned long long)pass_count);
 
         sleep(1);

@@ -9,6 +9,7 @@
 #include <signal.h>
 #include <dlfcn.h>
 
+#define MAP_PATH "/sys/fs/bpf/packet_count"
 
 static volatile sig_atomic_t stop;
 
@@ -122,7 +123,7 @@ int main(int argc, char **argv)
 {
     struct bpf_object *obj = NULL;
     struct bpf_program *prog = NULL;
-    int prog_fd = -1;
+    int prog_fd = -1, map_fd = -1;
     int ifindex;
     __u32 xdp_flags = 0; /* puedes cambiar a XDP_FLAGS_SKB_MODE, etc. */
 
@@ -130,6 +131,15 @@ int main(int argc, char **argv)
         fprintf(stderr, "Uso: %s <nombre_de_interfaz>\n", argv[0]);
         return 1;
     }
+
+    /*
+     * IMPORTANT: when stdout is redirected to a file (as done by the experiment
+     * launcher), libc usually switches stdout to fully-buffered mode. That can
+     * delay our per-second prints until the buffer fills or the process exits.
+     * Make stdout/stderr unbuffered so the launcher can parse the log reliably.
+     */
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
 
     ifindex = if_nametoindex(argv[1]);
     if (ifindex == 0) {
@@ -148,6 +158,16 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    map_fd = bpf_object__find_map_fd_by_name(obj, "packet_count");
+    if (map_fd < 0) {
+        perror("Error al obtener FD del mapa BPF");
+        return 1;
+    }
+
+    if (bpf_obj_pin(map_fd, MAP_PATH) < 0 && errno != EEXIST) {
+        perror("Error al fijar el mapa BPF en /sys/fs/bpf/");
+        //return 1;
+    }
 
     prog = bpf_object__find_program_by_name(obj, "ransomware_tree");
     if (!prog) {
@@ -179,12 +199,34 @@ int main(int argc, char **argv)
     signal(SIGINT, handle_sigint);
     signal(SIGTERM, handle_sigint);
 
-	printf("Programa XDP adjuntado a la interfaz %s\n", argv[1]);
-	printf("XDP activo (Ctrl+C para salir)...\n");
+    printf("Programa XDP adjuntado a la interfaz %s\n", argv[1]);
+    printf("Monitorizando contadores de paquetes (Ctrl+C para salir)...\n");
 
-	while (!stop) {
-		sleep(1);
-	}
+    while (!stop) {
+        __u32 drop_key = 0;
+        __u32 pass_key = 1;
+        __u64 drop_count = 0, pass_count = 0;
+
+        if (bpf_map_lookup_elem(map_fd, &drop_key, &drop_count) < 0) {
+            perror("Error al leer contador de paquetes descartados");
+        }
+        if (bpf_map_lookup_elem(map_fd, &pass_key, &pass_count) < 0) {
+            perror("Error al leer contador de paquetes pasados");
+        }
+
+        /* Human-readable */
+        printf("\nTotal de paquetes descartados (XDP_DROP): %llu\n",
+               (unsigned long long)drop_count);
+        printf("Total de paquetes pasados (XDP_PASS): %llu\n",
+               (unsigned long long)pass_count);
+
+        /* Machine-friendly single line (easier to grep/awk reliably) */
+        printf("XDP_STATS drop=%llu pass=%llu\n",
+               (unsigned long long)drop_count,
+               (unsigned long long)pass_count);
+
+        sleep(1);
+    }
 
     /* Detach */
     (void)xdp_detach_compat(ifindex, xdp_flags);
