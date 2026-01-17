@@ -1,4 +1,5 @@
+The continuous increase in ransomware attacks has motivated the development of efficient detection and filtering mechanisms, particularly in scenarios where low latency and high throughput are critical. This work evaluates the network performance impact of deploying a preliminary filter based on a decision tree classifier to identify communications potentially related to ransomware.
 
-TO DO
+A model is trained using \textit{scikit-learn} and its logic is integrated into the data plane through eBPF/XDP, automatically generating restricted C code from the trained decision tree. Experiments are conducted in a controlled environment using Mininet and traffic generation and replay tools, including a custom script designed to emulate mixed benign and malicious traffic scenarios. Results show that XDP-based filtering can sustain comparable effective throughput with and without the filter, while incurring a low system resource overhead, supporting the feasibility of decision-tree filters as lightweight preliminary defenses in \textit{inline} architectures and SmartNIC-like deployments.
 
-\keywords{TO, DO}
+\keywords{Ransomware, eBPF, XDP, decision trees, packet filtering, network performance, SmartNIC, Mininet}

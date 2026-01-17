@@ -63,11 +63,13 @@ La adopción de este modelo resulta especialmente adecuada para el presente trab
 
 En la presente sección se describen las herramientas empleadas tanto para la generación de tráfico como para la obtención de métricas asociadas. Si bien todas ellas persiguen el mismo objetivo general —evaluar el rendimiento de la red bajo distintas condiciones de carga—, difieren en el tipo de tráfico que generan y en su origen. Esta complementariedad justifica la utilización de las tres, ya que permite llevar a cabo un análisis más completo y ofrecer una visión más precisa del comportamiento del sistema.
 
+\begin{comment}
 \subsection{Iperf}
 
 Iperf 2 es ---como indica su manual\cite{iperf2-manual}--- una herramienta de testeo que emplea sockets de red para realizar medidas de tráfico. Solo acepta los protocolos TCP y UDP, y permite evaluar métricas de rendimiento como el throughput y la latencia. Entre sus funcionalidades se encuentra la posibilidad de generar tráfico unidireccional, full duplex (usando un mismo socket) y bidireccional, además de soportar múltiples flujos simultáneos de manera concurrente. Asimismo, admite tráfico multicast, incluyendo uniones de tipo source-specific multicast (SSM). Su diseño multihilo posibilita alcanzar un rendimiento elevado en las pruebas, mientras que las métricas obtenidas permiten caracterizar el desempeño de la red de extremo a extremo. Para la ejecución de un test es necesario establecer tanto un servidor, que recibe el tráfico, como un cliente, que lo genera y envía; normalmente se ubican en equipos distintos, aunque no es estrictamente necesario.
 
 La elección de Iperf como herramienta de apoyo en la experimentación se justifica principalmente por su simplicidad y facilidad de uso. Esta característica permite diseñar pruebas controladas en entornos ideales, utilizando los dos protocolos de transporte más empleados en la actualidad en el ámbito de las redes, TCP y UDP. Además, la herramienta proporciona de manera integrada métricas fundamentales como ancho de banda, latencia y pérdida de paquetes, las cuales pueden obtenerse bajo diferentes configuraciones sin añadir complejidad al proceso experimental. Gracias a estas propiedades, Iperf resulta especialmente útil para establecer una línea base de rendimiento y evaluar de forma genérica el impacto que introduce el filtro basado en árboles de decisión sobre el tráfico de red.
+\end{comment}
 
 \subsection{TCPReplay}
 
@@ -75,15 +77,20 @@ TCPReplay es una herramienta diseñada para el reenvío de paquetes de red previ
 
 TCPReplay aporta dos ventajas clave para la evaluación experimental. En primer lugar, permite reproducir tráfico real contenido en ficheros PCAP, lo que posibilita realizar ensayos más representativos que los basados únicamente en tráfico sintético —por ejemplo, incluyendo protocolos distintos de TCP/UDP (ICMP, ARP, SMB, etc.) y secuencias de paquetes reales—. En segundo lugar, ofrece un control fino sobre la velocidad de reproducción (tanto en paquetes por segundo como en Mbps y otras modalidades), lo que facilita la emulación de distintos escenarios de carga de red (desde tráfico esporádico hasta condiciones de estrés). Estas capacidades hacen de TCPReplay una herramienta especialmente adecuada para validar el comportamiento del filtro XDP frente a tráfico heterogéneo y para estudiar su rendimiento bajo diferentes perfiles de carga.
 
-\subsection{Script de Reenvío}
+\subsection{Script de Reenvio}
 
-Iperf presenta la limitación de generar tráfico sintético exclusivamente con los protocolos TCP y UDP, lo que resulta insuficiente para el presente trabajo dado que una parte relevante del tráfico legítimo y, de forma más crítica, de las muestras de ransomware emplea otros protocolos (por ejemplo ICMP). En este sentido, Iperf no permite reproducir de forma realista la heterogeneidad de protocolos observada en escenarios reales. Tcpreplay cubre parcialmente esta carencia, ya que posibilita el reenvío de tramas contenidas en ficheros PCAP independientemente del protocolo que utilicen; sin embargo, su operación se limita a reproducir secuencias predefinidas, por lo que no facilita la selección aleatoria en tiempo de ejecución entre tráfico benigno y malicioso, comportamiento que sí sería habitual en un entorno real. Por estas razones se ha desarrollado un script propio que emula un entorno más realista: el generador produce paquetes según la tasa (rate) y la duración especificadas, y para cada envío selecciona aleatoriamente si el paquete será de origen benigno o malicioso, permitiendo además etiquetar cada emisión para su posterior correlación y análisis experimental. El código completo se encuentra en el fichero \verb|Mininet/trafico_eth.py|.
+Una limitación de \textit{tcpreplay} cuando se utiliza de forma aislada es que no permite emular de manera realista un escenario de ataque, ya que en este tipo de situaciones el sistema suele recibir simultáneamente tráfico benigno y tráfico malicioso. Por este motivo, se desarrolló un script propio ---se puede encontrar en \verb|Mininet/script_reenvio.py|--- que hace uso de \textit{tcpreplay} con el objetivo de reproducir un escenario más representativo, combinando ambos tipos de tráfico en una misma ejecución.
+
+El funcionamiento del script se divide en dos fases. En primer lugar, se realiza una fase de preparación en la que se genera un fichero PCAP auxiliar, el cual se elimina una vez finalizada la prueba. Dicho fichero se construye a partir de fragmentos de los PCAP legítimo y malicioso proporcionados como entrada. Durante esta fase, la selección de paquetes se realiza de manera aleatoria: en cada iteración se escoge al azar si se extraerán paquetes del PCAP legítimo o del malicioso, tras lo cual se leen y escriben 100 paquetes consecutivos de la captura seleccionada. Este proceso se repite hasta alcanzar el número total de paquetes que se pretende transmitir, calculado como el producto de la tasa objetivo de paquetes por segundo y la duración del experimento, añadiéndose adicionalmente un 20\% de margen para garantizar que el fichero auxiliar contenga suficientes paquetes ante posibles variaciones o imprevistos durante la reproducción.
+
+Una vez generado el PCAP auxiliar, se ejecuta la segunda fase, consistente en reenviar dicho fichero a la tasa y duración especificadas como parámetros de entrada por el usuario, utilizando nuevamente \textit{tcpreplay}. Inicialmente se consideró implementar esta reproducción directamente mediante \textit{Scapy}, seleccionando los paquetes de forma aleatoria en tiempo de ejecución sin generar un PCAP previo. No obstante, esta aproximación se descartó debido a que, en pruebas preliminares, no fue posible alcanzar tasas de paquetes por segundo suficientemente elevadas para el propósito experimental del presente trabajo.
 
 \subsection{TCPDump}
 
-Tanto TCPReplay como el script desarrollado en este trabajo, a diferencia de Iperf, no disponen de funcionalidades propias para medir el rendimiento de la red, limitándose únicamente al reenvío de paquetes. Por este motivo, resulta necesario complementar su uso con herramientas de captura de tráfico, como TCPDump, que permiten registrar los paquetes transmitidos y analizar posteriormente métricas relevantes como el throughput, la latencia o la pérdida de paquetes\cite{tcpdump-manpage}.
+Tanto TCPReplay como el script desarrollado en este trabajo no disponen de funcionalidades propias para medir el rendimiento de la red, limitándose únicamente al reenvío de paquetes. Por este motivo, resulta necesario complementar su uso con herramientas de captura de tráfico, como TCPDump, que permiten registrar los paquetes transmitidos y analizar posteriormente métricas relevantes como el throughput, la latencia o la pérdida de paquetes\cite{tcpdump-manpage}.
 
 TCPDump es una herramienta de línea de comandos que permite capturar y visualizar paquetes de red en tiempo real. Es capaz de filtrar el tráfico en función de distintos criterios, como direcciones IP, puertos o protocolos, y de guardar las capturas en ficheros para su análisis posterior. Además, TCPDump permite examinar cabeceras de protocolos como Ethernet, IP, TCP y UDP, proporcionando información detallada sobre el flujo de datos entre hosts, lo que lo convierte en un recurso fundamental para evaluar cómo afectan mecanismos de filtrado, como el árbol de decisión XDP, al rendimiento de la red.
+
 
 \section{Métricas Relevantes}
 
@@ -113,7 +120,16 @@ No obstante, la interpretación de esta métrica requiere un análisis diferenci
   \text{Pérdida Real(\%)} = 100 \times \frac{N_{\text{enviados}} - N_{\text{recibidos}} - N_{\text{filtrados}}}{N_{\text{enviados}}}
 \end{equation}
 
+Existe además la métrica denominada goodput, la cual representa el rendimiento efectivo de una muestra de tráfico expresado en paquetes por segundo (PPS), considerando únicamente aquellos paquetes que son entregados con éxito y excluyendo las pérdidas producidas durante la transmisión.
+
+\begin{equation}[eq:goodput]{Cálculo del rendimiento útil \(goodput\)}
+	\text{Goodput} = \text{pps\_medidos} \times (1 - \frac{\text{porcentaje\_perdida\_real}}{100})
+\end{equation}
+
+Por último, otras dos métricas relevantes en el análisis experimental son el porcentaje de uso de la CPU y el porcentaje de uso de la memoria RAM. Estas métricas permiten evaluar el impacto del filtro sobre los recursos computacionales del sistema y determinar si su ejecución introduce un cuello de botella o un factor limitante asociado al consumo de hardware, especialmente en escenarios de alta carga de tráfico.
+
 \section{Metodología Seguida}
+
 Antes de llevar a cabo los experimentos de rendimiento, el primer paso consiste en verificar si el árbol de decisión entrenado presenta una tasa de acierto real lo suficientemente adecuada como para considerar que, con un entrenamiento más exhaustivo, podría emplearse como un filtro efectivo. En este trabajo se estableció como umbral mínimo deseable una tasa de acierto real del 60\%, dado que el objetivo principal no es evaluar la eficacia del modelo, sino analizar el impacto que dicho filtro puede tener sobre el rendimiento del sistema.
 
 Las pruebas realizadas en este ámbito, como la que se muestra en la figura \ref{prueba_calidad_arbol}, han arrojado una tasa de acierto situada entre el 65\% y el 70\%. Esta tasa se ha calculado como el cociente entre el número de paquetes maliciosos correctamente rechazados y el número total de paquetes maliciosos enviados, multiplicado por cien. Con ello se confirma que el árbol utilizado posee una calidad suficiente para servir como base en los experimentos de rendimiento desarrollados en este trabjo.
@@ -122,6 +138,50 @@ Las pruebas realizadas en este ámbito, como la que se muestra en la figura \ref
 	\includegraphics[width=1.1 \textwidth]{capturas/Prueba_calidad_arbol.png}
 \end{figure}
 
-Para el presente trabajo se ha definido un único experimento de evaluación del rendimiento de la red, que se analiza desde dos perspectivas complementarias. Por un lado, se considera el rendimiento en términos de bits por segundo (bps), mientras que por otro se mide en paquetes por segundo (PPS). Aunque se trata del mismo experimento, el cambio de métrica permite identificar distintos posibles cuellos de botella y limitaciones del sistema que podrían no ser evidentes si se utilizara únicamente una de las dos unidades de medida, tal y como se explicó en la sección anterior.
+El experimento consiste en generar tráfico de red a una tasa determinada durante un intervalo de tiempo fijo, ejecutando primero las pruebas con el filtro desactivado y, posteriormente, repitiéndolas con el filtro XDP activado. En concreto, se realizan iteraciones con tasas comprendidas entre 64 ($2^6$) y 16.384 ($2^{14}$) paquetes por segundo, manteniendo una duración de 10 segundos por ejecución. Este procedimiento se aplica de forma independiente para cada herramienta empleada —cuyo papel y objetivo se describirán en párrafos posteriores—. Tras cada iteración, se registran las métricas consideradas más relevantes, con la excepción del rendimiento en bits por segundo (bps), cuya obtención y tratamiento se detalla más adelante.
 
-El experimento se estructura en una serie de diez ejecuciones de envío de tráfico, realizadas primero con el filtro XDP desactivado y posteriormente con dicho filtro activado. La finalidad de cada conjunto de pruebas depende de la herramienta utilizada: con Iperf, el objetivo es evaluar si el filtro introduce un posible cuello de botella en un entorno idealizado, caracterizado por tráfico homogéneo UDP, a pesar de que a lo largo de la literatura y en entornos reales sería más habitual usar TCP; esta elección se debe a que Iperf únicamente permite obtener métricas de paquetes por segundo (PPS) y de pérdida de paquetes en modo UDP. En el caso de TCPReplay, el experimento permite analizar si el filtro genera cuellos de botella diferenciados para tráfico benigno y tráfico malicioso por separado. Finalmente, utilizando el script desarrollado específicamente para este trabajo, se pretende medir el impacto del filtro en un escenario de ataque en el que tanto el tráfico benigno como el malicioso son elevados. En todos los experimentos se varían los bits por segundo (bps) o los paquetes por segundo (PPS) con el fin de evaluar el rendimiento bajo diferentes cargas. Adicionalmente, en las pruebas con Iperf se modifican los tamaños de los paquetes, mientras que con TCPReplay y el script propio esto no es posible debido a que los paquetes se relanzan directamente desde capturas previamente almacenadas.
+Para ejecutar estas pruebas de manera reproducible, se empleó un único script en Python encargado de automatizar tanto el despliegue del entorno como la ejecución completa del conjunto de iteraciones. En primer lugar, el script inicializa la topología en Mininet y obtiene los identificadores de proceso (PID) asociados a los hosts \textit{hsrc} y \textit{hdst}, lo que permite lanzar comandos directamente sobre cada host emulado. A continuación, se ejecuta el bloque de iteraciones con el filtro XDP desactivado, incorporando un breve \textit{sleep} entre ejecuciones. Una vez finalizado este bloque, se introduce una pausa más prolongada con el objetivo de reducir el posible efecto residual de las pruebas previas sobre las siguientes mediciones. Posteriormente, el script compila y activa el filtro XDP y repite el mismo rango de iteraciones bajo condiciones equivalentes.
+
+Finalmente, tras cada iteración —tanto con el filtro activo como desactivado— el script vuelca las métricas registradas a un fichero CSV asociado a dicha prueba. Los resultados completos obtenidos durante la experimentación pueden consultarse en el directorio \verb|ResultadoExperimento| del repositorio.
+
+Con el fin de validar los resultados obtenidos en la experimentación y poder extraer conclusiones fundamentadas, se han elaborado diversas gráficas orientadas a responder a una serie de cuestiones específicas. Estas representaciones, junto con el análisis asociado, pueden agruparse en cuatro bloques principales: capacidad y escalabilidad del envío, pérdidas de paquetes, actividad del filtro y coste del sistema.
+
+Comenzando por el primer bloque, relativo a la capacidad y escalabilidad del envío, se han seleccionado las figuras \verb|pps_measured vs pps_target| (\ref{measuredvstarget}) y \verb|goodput_pps vs pps_target| (\ref{goodput}). La primera permite comprobar si el entorno experimental es capaz de generar y transmitir el tráfico solicitado de forma consistente, evaluando el grado de correspondencia entre la tasa objetivo y la tasa efectivamente medida. La segunda, siguiendo la misma línea, permite analizar el rendimiento útil (goodput) en función de la tasa esperada, estimando la tasa efectiva de entrega correcta al considerar únicamente los paquetes entregados sin pérdida real. En conjunto, ambas representaciones permiten validar la consistencia del entorno de pruebas y detectar posibles fenómenos de saturación cuando la tasa alcanzada deja de crecer proporcionalmente a medida que aumenta la carga.
+
+\begin{figure}[pps\_measured vs pps\_target]{measuredvstarget}{Gráfica que muestra la comparativa entre los pps medidos y los esperados.}
+	\includegraphics[width=1\textwidth]{capturas/03_pps_measured.png}
+\end{figure}
+
+\begin{figure}[goodput\_pps vs pps\_target]{goodput}{Gráfica que muestra la comparativa entre rendimiento útil y los pps esperados.}
+	\includegraphics[width=1\textwidth]{capturas/07_goodput.png}
+\end{figure}
+
+En el segundo bloque, centrado en el análisis de pérdidas, se han seleccionado las figuras \verb|lost_percent vs pps_target| (\ref{lossaparente}) y \verb|lost_real_percent vs pps_target| (\ref{lossreal}). La primera representa el porcentaje de pérdida medido globalmente durante cada iteración, incluyendo tanto pérdidas debidas a limitaciones del entorno de transmisión como paquetes descartados intencionadamente por el filtro cuando este está activo. La segunda, por su parte, muestra el porcentaje de pérdida real, calculado descontando del total los paquetes asociados al filtrado (\verb|XDP_DROP|), lo que permite cuantificar la degradación efectiva de la comunicación debida a pérdidas no intencionadas. Consideradas conjuntamente, ambas figuras permiten diferenciar entre una pérdida aparente elevada provocada por el funcionamiento normal del filtro y una pérdida real asociada a degradación de rendimiento, proporcionando una interpretación más precisa del impacto del filtrado sobre el rendimiento de la red.
+
+\begin{figure}[lost\_percent vs pps\_target]{lossaparente}{Gráfica que muestra la comparativa entre el porcentaje de pérdida aparente y los pps esperados.}
+	\includegraphics[width=1\textwidth]{capturas/01_loss_aparente.png}
+\end{figure}
+
+\begin{figure}[lost\_real vs pps\_target]{lossreal}{Gráfica que muestra la comparativa entre el porcentaje de pérdida real y los pps esperados.}
+	\includegraphics[width=1\textwidth]{capturas/02_loss_real.png}
+\end{figure}
+
+En el tercer bloque, orientado a caracterizar la actividad del filtro, se han seleccionado las figuras \verb|paquetes_filtrados vs pps_target| (\ref{filtrados}) y \verb|loss_gap vs pps_target| (\ref{gaploss}). La primera muestra el número de paquetes descartados por el filtro, correspondiente al contador de eventos \verb|XDP_DROP|, y permite comprobar de forma directa que el mecanismo de filtrado se encuentra actuando durante la ejecución del experimento. La segunda representa la diferencia entre la pérdida aparente y la pérdida real, cuantificando el porcentaje de pérdida observado que se explica por el filtrado intencionado y no por degradación de la comunicación. En conjunto, ambas figuras permiten interpretar correctamente el incremento de pérdidas observado con el filtro activado, distinguiendo entre descartar tráfico de forma deliberada y pérdidas atribuibles a limitaciones del entorno de red o del generador de tráfico.
+
+\begin{figure}[filtrados vs pps\_target]{filtrados}{Gráfica que muestra la comparativa entre el paquetes filtrados y los pps esperados.}
+	\includegraphics[width=1\textwidth]{capturas/04_filtrados.png}
+\end{figure}
+
+\begin{figure}[lost\_real vs pps\_target]{gaploss}{Gráfica que muestra la diferencia entre la pérdida aparente y la pérdida real (gaploss) respecto a los pps esperados.}
+	\includegraphics[width=1\textwidth]{capturas/08_gap_loss.png}
+\end{figure}
+
+Por último, el cuarto bloque analiza el coste computacional asociado al experimento, empleando las figuras \verb|cpu_usage_percent vs pps_target| (\ref{cpu}) y \verb|mem_usage_percent vs pps_target| (\ref{ram}). Estas representaciones permiten observar la evolución del consumo de recursos a medida que aumenta la carga de tráfico, comparando el comportamiento con el filtro desactivado y activado. De este modo, se evalúa si el filtrado introduce una sobrecarga sostenida que pudiera constituir un cuello de botella en el sistema, o si las variaciones observadas responden principalmente a la propia generación y transmisión del tráfico en el entorno de pruebas. Este análisis complementa las métricas de rendimiento de red, proporcionando una visión global del impacto del filtrado tanto en términos de entrega de paquetes como de uso de recursos.
+
+\begin{figure}[CPU]{cpu}{Gráfica que muestra la comparativa entre el uso de la CPU y los pps esperados.}
+	\includegraphics[width=1\textwidth]{capturas/05_cpu.png}
+\end{figure}
+
+\begin{figure}[RAM]{ram}{Gráfica que muestra la comparativa entre el uso de la memoria RAM y los pps esperados.}
+	\includegraphics[width=1\textwidth]{capturas/06_ram.png}
+\end{figure}

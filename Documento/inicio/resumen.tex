@@ -1,4 +1,5 @@
-Por Hacer
+El incremento constante de ataques de ransomware ha impulsado el desarrollo de mecanismos de detección y filtrado cada vez más eficientes, especialmente en entornos donde la latencia y el rendimiento son críticos. En este trabajo se evalúa el impacto en el rendimiento de red que supone aplicar un filtro preliminar basado en un árbol de decisión para la detección de comunicaciones potencialmente asociadas a ransomware.
 
+Para ello, se entrena un clasificador mediante \textit{scikit-learn} y se integra su lógica en el plano de datos mediante eBPF/XDP, generando automáticamente código C restringido a partir del modelo entrenado. La experimentación se realiza en un entorno controlado utilizando Mininet y herramientas de generación y reproducción de tráfico, incluyendo un script propio que emula escenarios mixtos de tráfico benigno y malicioso. Los resultados indican que el filtrado basado en XDP permite mantener un rendimiento útil comparable con y sin filtro, con un coste reducido en recursos del sistema, lo que respalda la viabilidad de utilizar árboles de decisión como filtros preliminares en arquitecturas \textit{inline} y en dispositivos como SmartNICs.
 
-\palabrasclave{Por, Hacer}
+\palabrasclave{Ransomware, eBPF, XDP, árboles de decisión, filtrado de paquetes, rendimiento de red, SmartNIC, Mininet}
