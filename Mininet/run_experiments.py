@@ -86,8 +86,14 @@ CSV_COMMON = [
     "paquetes_filtrados",
     "paquetes_perdidos_reales",
     "lost_real_percent",
+    "cpu_usage_percent",
+    "mem_usage_percent",
 ]
 
+
+# ======================================================
+# UTILS
+# ======================================================
 
 def compute_real_losses(packets_total: int, lost_packets: int, filtered: int):
     """Calcula pérdidas reales y su %.
@@ -104,10 +110,23 @@ def compute_real_losses(packets_total: int, lost_packets: int, filtered: int):
     return real_lost, real_percent
 
 
-# ======================================================
-# UTILS
-# ======================================================
-
+def get_system_usage(host):
+    """
+    Devuelve (cpu_usage_percent, mem_usage_percent)
+    CPU = 100 - idle
+    MEM = used / total * 100
+    """
+    cmd = (
+        "top -bn1 | "
+        "awk '/Cpu\\(s\\)/ {cpu=100-$8} "
+        "/MiB Mem/ {mem=$8/$4*100} "
+        "END {printf \"%.2f %.2f\", cpu, mem}'"
+    )
+    out = host.cmd(cmd).strip().split()
+    try:
+        return float(out[0]), float(out[1])
+    except Exception:
+        return 0.0, 0.0
 
 def now_tag():
     return datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -279,6 +298,7 @@ def iperf_sweep(net, results_dir: str, repo_root: str, pps_steps, duration: int,
             drops_prev = drops_now
 
         real_lost, real_percent = compute_real_losses(packets, lost_packets, drops_iter)
+        cpu_usage, mem_usage = get_system_usage(hdst)
 
         row = {
             "timestamp": datetime.now().isoformat(timespec="seconds"),
@@ -293,6 +313,8 @@ def iperf_sweep(net, results_dir: str, repo_root: str, pps_steps, duration: int,
             "paquetes_perdidos_reales": int(real_lost),
             "lost_real_percent": f"{real_percent:.4f}",
             "bps_measured": f"{bps:.2f}",
+            "cpu_usage_percent": f"{cpu_usage:.2f}",
+            "mem_usage_percent": f"{mem_usage:.2f}",
         }
 
         write_header = not os.path.exists(csv_path)
@@ -376,6 +398,8 @@ def tcpreplay_sweep(net, results_dir: str, repo_root: str, pcap_path: str, label
         )
         run_cmd(hsrc, f"{play_cmd} > {shlex.quote(tcpreplay_log)} 2>&1")
 
+        cpu_usage, mem_usage = get_system_usage(hdst)
+
         time.sleep(1.0)
         stop_bg(hdst, tcpdump_pid)
 
@@ -406,6 +430,8 @@ def tcpreplay_sweep(net, results_dir: str, repo_root: str, pcap_path: str, label
             "paquetes_filtrados": int(drops_iter),
             "paquetes_perdidos_reales": int(real_lost),
             "lost_real_percent": f"{real_percent:.4f}",
+            "cpu_usage_percent": f"{cpu_usage:.2f}",
+            "mem_usage_percent": f"{mem_usage:.2f}",
         }
 
         write_header = not os.path.exists(csv_path)
@@ -571,6 +597,7 @@ def trafico_eth_sweep(net, results_dir: str, repo_root: str, pcap_legit: str, pc
             drops_prev = drops_now
 
         real_lost, real_percent = compute_real_losses(rx_pkts, lost, drops_iter)
+        cpu_usage, mem_usage = get_system_usage(hdst)
 
         row = {
             "timestamp": datetime.now().isoformat(timespec="seconds"),
@@ -584,6 +611,8 @@ def trafico_eth_sweep(net, results_dir: str, repo_root: str, pcap_legit: str, pc
             "paquetes_filtrados": int(drops_iter),
             "paquetes_perdidos_reales": int(real_lost),
             "lost_real_percent": f"{real_percent:.4f}",
+            "cpu_usage_percent": f"{cpu_usage:.2f}",
+            "mem_usage_percent": f"{mem_usage:.2f}",
         }
 
         write_header = not os.path.exists(csv_path)
