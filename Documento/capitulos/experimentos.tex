@@ -20,9 +20,9 @@ Además, esta configuración contribuye a disminuir la variabilidad en los resul
 
 En los fragmentos de código \ref{redarbolrw} y \ref{redarbolrw1} se muestran extractos de los ficheros redarbolrw.py y redarbolrw1.py, correspondientes a la definición de la topología preliminar y de la topología definitiva, respectivamente.
 
-\PythonCode[redarbolrw]{Red Árbol Preeliminar}{Fragmento de códgio que define la topología de red usada en las pruebas preeliminares.}{../Mininet/redarbolrw.py}{22}{54}{22}
+\PythonCode[redarbolrw]{Red Árbol Preliminar}{Fragmento de código que define la topología de red usada en las pruebas preliminares.}{../Mininet/redarbolrw.py}{22}{54}{22}
 
-\PythonCode[redarbolrw1]{Red Árbol Final}{Fragmento de códgio que define la topología de red usada en las pruebas finales.}{../Mininet/redarbolrw1.py}{8}{25}{8}
+\PythonCode[redarbolrw1]{Red Árbol Final}{Fragmento de código que define la topología de red usada en las pruebas finales.}{../Mininet/redarbolrw1.py}{8}{25}{8}
 
 
 \begin{comment}
@@ -168,7 +168,7 @@ En el segundo bloque, centrado en el análisis de pérdidas, se han seleccionado
 
 En el tercer bloque, orientado a caracterizar la actividad del filtro, se han seleccionado las figuras \verb|paquetes_filtrados vs pps_target| (\ref{filtrados}) y \verb|loss_gap vs pps_target| (\ref{gaploss}). La primera muestra el número de paquetes descartados por el filtro, correspondiente al contador de eventos \verb|XDP_DROP|, y permite comprobar de forma directa que el mecanismo de filtrado se encuentra actuando durante la ejecución del experimento. La segunda representa la diferencia entre la pérdida aparente y la pérdida real, cuantificando el porcentaje de pérdida observado que se explica por el filtrado intencionado y no por degradación de la comunicación. En conjunto, ambas figuras permiten interpretar correctamente el incremento de pérdidas observado con el filtro activado, distinguiendo entre descartar tráfico de forma deliberada y pérdidas atribuibles a limitaciones del entorno de red o del generador de tráfico.
 
-\begin{figure}[filtrados vs pps\_target]{filtrados}{Gráfica que muestra la comparativa entre el paquetes filtrados y los pps esperados.}
+\begin{figure}[filtrados vs pps\_target]{filtrados}{Gráfica que muestra la comparativa entre los paquetes filtrados y los pps esperados.}
 	\includegraphics[width=1\textwidth]{capturas/04_filtrados.png}
 \end{figure}
 
@@ -185,3 +185,7 @@ Por último, el cuarto bloque analiza el coste computacional asociado al experim
 \begin{figure}[RAM]{ram}{Gráfica que muestra la comparativa entre el uso de la memoria RAM y los pps esperados.}
 	\includegraphics[width=1\textwidth]{capturas/06_ram.png}
 \end{figure}
+
+Aunque el throughput en bits por segundo es una métrica habitual en la evaluación del rendimiento de red, en este trabajo no se incluyó su medición experimental directa. Esto se debe, en primer lugar, a que dicha métrica no puede aplicarse de manera sencilla en escenarios basados en tcpreplay, ya que no se dispone del tamaño en bits de cada paquete en el momento de su reenvío. Calcular este valor dinámicamente durante la transmisión introduciría un overhead adicional suficientemente elevado como para alterar de forma apreciable la propia métrica que se pretende medir.
+
+Como alternativa, se planteó el uso de iperf para la obtención del throughput en bits por segundo. Sin embargo, durante las pruebas preliminares se observó que, con el árbol de decisión activo en XDP, las mediciones proporcionadas por esta herramienta resultaban gravemente distorsionadas y poco representativas del comportamiento real del sistema. Por este motivo, se decidió no incluir esta métrica en los experimentos finales y centrar el análisis en métricas basadas en paquetes por segundo, pérdidas de paquetes y consumo de recursos, que permiten una evaluación más fiable del impacto del filtrado.

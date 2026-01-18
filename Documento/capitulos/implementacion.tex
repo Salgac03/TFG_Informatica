@@ -10,7 +10,7 @@ En la segunda fase, el mismo script aplica un conjunto de reglas de traducción 
 
 La tercera fase corresponde a la ejecución del sistema. En este punto, el proceso principal consiste en la utilización de un Makefile, encargado de automatizar la compilación y despliegue del entorno. Dicho Makefile genera, por un lado, el bytecode del programa XDP, y por otro, el ejecutable del programa en espacio de usuario. Este último tiene como funciones tanto la carga del bytecode en el kernel del sistema como la monitorización en tiempo real de los paquetes que son descartados o aceptados en función de las reglas definidas por el árbol de decisión.
 
-\begin{figure}[Arquitectura Implementación]{diagrama_arquitectura}{Arquitecturade generación de filtros eBPF}
+\begin{figure}[Arquitectura Implementación]{diagrama_arquitectura}{Arquitectura de generación de filtros eBPF}
 	\includegraphics[width=0.8\textwidth]{capturas/Arquitectura_implementacion.png}
 \end{figure}
 
@@ -40,7 +40,7 @@ Durante el desarrollo se identificó un error en la configuración del entrenami
 
 Posteriormente, se decidió eliminar la variable TTL al comprobar que resultaba tan poco fiable como las direcciones IP, introduciendo un nivel elevado de variabilidad. Tras esta modificación, el árbol resultante mostró una mayor amplitud, alcanzando ahora los cuatro niveles de profundidad. Aunque estas observaciones pudieran parecer superficiales, resultan de especial relevancia, ya que tanto el desarrollo del código como la generación automática de este se fundamentan en los árboles de decisión obtenidos, y en la evolución observada de uno respecto al otro.
 
-\PythonCode[entrenamientoArbol]{Entrenamiento Árbol}{Fragmento de códgio de arbolrw.py encargado de entrenar el árbol de decisión.}{../DecisionTree/arbolrw.py}{103}{114}{114}
+\PythonCode[entrenamientoArbol]{Entrenamiento Árbol}{Fragmento de código de arbolrw.py encargado de entrenar el árbol de decisión.}{../DecisionTree/arbolrw.py}{103}{114}{114}
 
 \section{Código XDP y Código autogenerado}
 
@@ -50,19 +50,19 @@ El programa de usuario inicia comprobando que se haya especificado la interfaz d
 
 El programa C aún requiere el descriptor de archivo (file descriptor, FD) del mapa para poder interactuar con él, el cual se obtiene a través de la función \verb|bpf_object__find_map_fd_by_name|, que recibe como parámetros la estructura previamente creada y el nombre del mapa definido en el programa XDP. Por seguridad y persistencia, se fija el mapa en \verb|/sys/fs/bpf/| mediante la función \verb|bpf_obj_pin|; esto permite acceder al mapa incluso si el proceso que lo creó finaliza de forma inesperada y, además, sirve para comprobar si el mapa ya existe, lo que indica que el programa se ha ejecutado previamente o se encuentra en ejecución en ese momento. Como última tarea para terminar de cargar el programa XDP se obtiene el descriptor de archivo de la función principal del programa XDP a través de la función \verb|bpf_program__fd|, tras esto se adjunta dicha función al hook XDP que es el controlador de la gráfica a través de la función \verb|bpf_set_link_xdp_fd|. Una vez cargado el programa XDP, el programa de usuario se dedica a monitorizar los cambios del mapa y a mostrarlos en pantalla, dicho mapa contiene tanto el número de paquetes descartados como el número de paquetes que el programa XDP ha permitido pasar. En el fragmento de código \ref{xdp_usr} se muestra la sección del fichero XDP/arbol1/xdp\_usr.c que implementa las funciones principales previamente descritas.
 
-\CCode[xdp_usr]{XDP Espacio de Usuario}{Fragmento de códgio que muestra como se carga el objeto, obtiene y fija el mapa y como se adjunta el programa al hook XDP}{../XDP/arbol1/xdp_usr.c}{28}{60}{28}
+\CCode[xdp_usr]{XDP Espacio de Usuario}{Fragmento de código que muestra como se carga el objeto, obtiene y fija el mapa y como se adjunta el programa al hook XDP}{../XDP/arbol1/xdp_usr.c}{28}{60}{28}
 
 En relación con el código que se ejecuta en el espacio del kernel, en una primera fase la traducción del árbol de decisión se realizaba de manera manual. Es decir, se convertía el árbol entrenado con la librería scikit-learn de Python a código C restringido, con el objetivo de comprender su funcionamiento interno. Una vez adquirido este entendimiento, se implementó la capacidad de autogenerar el código eBPF\/XDP mediante el uso de una plantilla intermedia de Jinja. El proceso consiste en recorrer de manera recursiva el árbol de decisión, sustituyendo cada nodo y sus hijos por condiciones if-else en formato C restringido. A continuación, este código autogenerado se incorpora en una plantilla Jinja que mantiene la estructura del programa eBPF/XDP final, incluyendo las funciones auxiliares y la función main, a excepción del árbol de decisión. Una vez completado este proceso, la plantilla Jinja rellenada se vuelca en el fichero XDP\/arbol\_prueba\/xdp\_kern.c.
 
 Debido a la forma en que funciona el entrenamiento de modelos en la biblioteca scikit-learn, así como a la representación de los datos en lenguaje C, fue necesario realizar un proceso de traducción adicional para la autogeneración del código XDP. Este proceso consistió en adaptar las condiciones presentes en el árbol de decisión al formato requerido por el lenguaje C. Durante el entrenamiento, scikit-learn transforma determinadas variables categóricas en rangos numéricos manejables por el propio programa. Por ejemplo, si una característica puede adoptar tres categorías distintas, el algoritmo genera tres rangos de valores continuos (\verb|0–0.5|, \verb|0.51–1|, \verb|1.01–1.5|, por ejemplo) y asigna a cada categoría un valor específico dentro de dichos rangos, normalmente el límite superior. Asimismo, existe la posibilidad de que, en lugar de utilizar rangos discretos, scikit-learn emplee la condición \verb|<= inf|, lo que en realidad significa que el valor de ese dato simplemente existe. Este último caso se da especialmente en aquellas características cuyo valor no es obligatorio y, por lo tanto, pueden no estar presentes en todos los registros.
 
-En el caso concreto del árbol de decisión preliminar utilizado en el presente trabajo, mostrado en la figura \ref{arbol-decision-preeliminar}, se observa la condición \verb|src_port <= inf|, y en pruebas anteriores apareció la condición equivalente \verb|dst_port <= inf|. En ambos casos, dichas condiciones se sustituyen por la expresión \verb#ip_proto == IPPROTO_TCP || ip_proto == IPPROTO_UDP|#, ya que el hecho de que el puerto de origen o destino sea menor que infinito no implica más que la existencia de un puerto, lo cual solo resulta cierto para protocolos como TCP y UDP.
+En el caso concreto del árbol de decisión preliminar utilizado en el presente trabajo, mostrado en la figura \ref{arbol-decision-preliminar}, se observa la condición \verb|src_port <= inf|, y en pruebas anteriores apareció la condición equivalente \verb|dst_port <= inf|. En ambos casos, dichas condiciones se sustituyen por la expresión \verb#ip_proto == IPPROTO_TCP || ip_proto == IPPROTO_UDP|#, ya que el hecho de que el puerto de origen o destino sea menor que infinito no implica más que la existencia de un puerto, lo cual solo resulta cierto para protocolos como TCP y UDP.
 
 Existen otros elementos que presentan valores binarios, como la comprobación de si el protocolo de transporte corresponde a TCP o UDP. En estos casos, scikit-learn representa la condición mediante rangos numéricos, normalmente \verb|0-0.5| y \verb|0.51-1|. Se ha comprobado que, en este tipo de decisiones booleanas, el rango menor asociado a la condición con el operador ``menor o igual'' (\verb|<=|) se corresponde con el valor lógico ``true'', mientras que el resto representa ``false''. Por ejemplo, cuando el árbol debe verificar si el protocolo de red es TCP, la traducción que se realiza consiste en detectar la aparición de una condición del tipo \verb|protocolo_IP_TCP <=|. En este punto no resulta relevante el rango concreto utilizado, ya que, al tratarse de un valor binario, este puede variar en futuros entrenamientos sin afectar a la validez de la traducción.
 
 La adaptación de estas condiciones al lenguaje C requiere una transformación adicional, ya que en este lenguaje la forma de identificar el protocolo de un paquete se basa en los números de protocolo IP. En el caso de TCP, por ejemplo, el campo correspondiente adopta el valor 6, por lo que la condición se traduce finalmente a \verb|ip_proto == 6|. Una lógica similar se aplica a otros protocolos o campos específicos, como las banderas de IP, que también se representan mediante valores numéricos concretos.
 
-\begin{figure}[Árbol de Decisión Preeliminar]{arbol-decision-preeliminar}{Árbol de decisión obtenido de un entrenamiento incluyendo el TTL como dato de entrenamiento.}
+\begin{figure}[Árbol de Decisión Preliminar]{arbol-decision-preliminar}{Árbol de decisión obtenido de un entrenamiento incluyendo el TTL como dato de entrenamiento.}
 	\includegraphics[width=0.9\textwidth]{capturas/arbolrw1_mej.png}
 \end{figure}
 
@@ -72,7 +72,7 @@ La eliminación del campo \verb|TTL|, junto con la generación del nuevo árbol 
 	\includegraphics[width=1.15\textwidth]{capturas/arbolrw2.png}
 \end{figure}
 
-\PythonCode[traduccionArbol]{Traducción Árbol}{Fragmento de códgio de arbolrw.py encargado de traducir el árbol de decisión a C.}{../DecisionTree/arbolrw.py}{19}{55}{19}
+\PythonCode[traduccionArbol]{Traducción Árbol}{Fragmento de código de arbolrw.py encargado de traducir el árbol de decisión a C.}{../DecisionTree/arbolrw.py}{19}{55}{19}
 
 La fase final del proceso de autogeneración consiste en integrar el árbol de decisión en la plantilla intermedia definida con Jinja mencionada anteriormente. Esta plantilla establece la estructura general del programa eBPF/XDP, en la cual se insertan dinámicamente las reglas de clasificación obtenidas durante el entrenamiento. De este modo, se separa la lógica de decisión —que varía en función del modelo— de la infraestructura del programa, que permanece constante.
 
@@ -84,9 +84,9 @@ El núcleo del programa lo constituye la función principal \verb|ransomware_tre
 
 En conjunto, esta plantilla actúa como un esqueleto flexible que proporciona toda la estructura necesaria para el filtrado de tráfico en el kernel, a la vez que facilita la integración dinámica del árbol de decisión mediante Jinja. Su diseño modular permite mantener un programa ligero, eficiente y adaptable a distintos escenarios de clasificación de tráfico malicioso. La función principal puede verse en el fragmento de código \ref{xdp_kern_jinja}.
 
-\CCode[xdp_kern_jinja]{Plantilla Jinja XDP espacio de Kernel}{Fragmento de códgio que muestra la función principal XDP en la plantilla Jinja}{../DecisionTree/xdp_kern.j2}{104}{145}{104}
+\CCode[xdp_kern_jinja]{Plantilla Jinja XDP espacio de Kernel}{Fragmento de código que muestra la función principal XDP en la plantilla Jinja}{../DecisionTree/xdp_kern.j2}{104}{145}{104}
 
-\section{Compilarción y Despliegue}
+\section{Compilación y Despliegue}
 
 En la presente sección se describen las herramientas y la preparación del entorno necesarias para la ejecución de Mininet, el entrenamiento del árbol de decisión y la implementación del filtro XDP. Para los entornos de ejecución en Python se ha utilizado la versión \verb|3.10.12|, junto con un entorno virtual creado mediante el comando \verb|python3 -m venv|, en el cual se han instalado, a través del gestor de paquetes \textit{pip}, todas las dependencias requeridas para el desarrollo del proyecto.
 
